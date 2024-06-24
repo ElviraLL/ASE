@@ -57,6 +57,8 @@ class HumanoidAMP(Humanoid):
         self._reset_default_env_ids = []
         self._reset_ref_env_ids = []
 
+        print(f"sim_params: {dir(sim_params)}")
+
         super().__init__(cfg=cfg,
                          sim_params=sim_params,
                          physics_engine=physics_engine,
@@ -142,6 +144,8 @@ class HumanoidAMP(Humanoid):
             self._num_amp_obs_per_step = 13 + self._dof_obs_size + 28 + 3 * num_key_bodies # [root_h, root_rot, root_vel, root_ang_vel, dof_pos, dof_vel, key_body_pos]
         elif (asset_file == "mjcf/amp_humanoid_sword_shield.xml"):
             self._num_amp_obs_per_step = 13 + self._dof_obs_size + 31 + 3 * num_key_bodies # [root_h, root_rot, root_vel, root_ang_vel, dof_pos, dof_vel, key_body_pos]
+        elif (asset_file == 'mjcf/smpl_humanoid_1.xml'):
+            self._num_amp_obs_per_step = 13 + self._dof_obs_size + len(self._dof_names) * 3 + 3 * num_key_bodies 
         else:
             print("Unsupported character config file: {s}".format(asset_file))
             assert(False)

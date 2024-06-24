@@ -149,6 +149,7 @@ def load_cfg(args):
 
 
 def parse_sim_params(args, cfg, cfg_train):
+    print(f"Parsing sim params for {args.physics_engine} engine")
     # initialize sim
     sim_params = gymapi.SimParams()
     sim_params.dt = SIM_TIMESTEP

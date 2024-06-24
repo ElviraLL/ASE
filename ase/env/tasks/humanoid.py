@@ -35,11 +35,18 @@ from isaacgym import gymapi
 from isaacgym.torch_utils import *
 
 from utils import torch_utils
+from utils import smpl_utils
 
 from env.tasks.base_task import BaseTask
 
+
+
 class Humanoid(BaseTask):
     def __init__(self, cfg, sim_params, physics_engine, device_type, device_id, headless):
+        # for smpl
+        self._body_names = smpl_utils.SMPL_MUJOCO_NAMES
+        self._dof_names = self._body_names[1:]
+
         self.cfg = cfg
         self.sim_params = sim_params
         self.physics_engine = physics_engine
@@ -75,6 +82,8 @@ class Humanoid(BaseTask):
         actor_root_state = self.gym.acquire_actor_root_state_tensor(self.sim)
         dof_state_tensor = self.gym.acquire_dof_state_tensor(self.sim)
         sensor_tensor = self.gym.acquire_force_sensor_tensor(self.sim)
+
+        print(f"sensor_tensor: {sensor_tensor.shape}")
         rigid_body_state = self.gym.acquire_rigid_body_state_tensor(self.sim)
         contact_force_tensor = self.gym.acquire_net_contact_force_tensor(self.sim)
 
@@ -215,7 +224,12 @@ class Humanoid(BaseTask):
             self._dof_obs_size = 78
             self._num_actions = 31
             self._num_obs = 1 + 17 * (3 + 6 + 3 + 3) - 3
-
+        elif (asset_file == "mjcf/smpl_humanoid_1.xml"):
+            self._dof_body_ids = np.arange(1, len(self._body_names))
+            self._dof_offsets = np.linspace(0, len(self._dof_names) * 3, len(self._body_names)).astype(int)
+            self._dof_obs_size = len(self._dof_names) * 6
+            self._num_actions = len(self._dof_names) * 3
+            self._num_obs = 1 + len(self._body_names) * (3 + 6 + 3 + 3) - 3  # height + num_bodies * 15 (pos + vel + rot + ang_vel) - root_pos
         else:
             print("Unsupported character config file: {s}".format(asset_file))
             assert(False)
@@ -262,12 +276,13 @@ class Humanoid(BaseTask):
         motor_efforts = [prop.motor_effort for prop in actuator_props]
         
         # create force sensors at the feet
-        right_foot_idx = self.gym.find_asset_rigid_body_index(humanoid_asset, "right_foot")
-        left_foot_idx = self.gym.find_asset_rigid_body_index(humanoid_asset, "left_foot")
+        right_foot_idx = self.gym.find_asset_rigid_body_index(humanoid_asset, "R_Toe")
+        left_foot_idx = self.gym.find_asset_rigid_body_index(humanoid_asset, "L_Toe")
         sensor_pose = gymapi.Transform()
 
         self.gym.create_asset_force_sensor(humanoid_asset, right_foot_idx, sensor_pose)
         self.gym.create_asset_force_sensor(humanoid_asset, left_foot_idx, sensor_pose)
+
 
         self.max_motor_effort = max(motor_efforts)
         self.motor_efforts = to_torch(motor_efforts, device=self.device)

@@ -116,6 +116,8 @@ class BaseTask():
         return 1
 
     def create_sim(self, compute_device, graphics_device, physics_engine, sim_params):
+        print(f"Creating sim with compute device {compute_device}, graphics device {graphics_device}, physics engine {physics_engine}")
+        print(f"Sim params: {sim_params}")
         sim = self.gym.create_sim(compute_device, graphics_device, physics_engine, sim_params)
         if sim is None:
             print("*** Failed to create sim")
