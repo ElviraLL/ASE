@@ -27,6 +27,7 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 import os
+import sys
 
 from utils.config import set_np_formatting, set_seed, get_args, parse_sim_params, load_cfg
 from utils.parse_task import parse_task
@@ -80,14 +81,15 @@ def create_rlgpu_env(**kwargs):
     sim_params = parse_sim_params(args, cfg, cfg_train)
     task, env = parse_task(args, cfg, cfg_train, sim_params)
 
-    print('num_envs: {:d}'.format(env.num_envs))
-    print('num_actions: {:d}'.format(env.num_actions))
-    print('num_obs: {:d}'.format(env.num_obs))
-    print('num_states: {:d}'.format(env.num_states))
+    print('ase.run_hydra.create_rlgpu_env num_envs: {:d}'.format(env.num_envs))
+    print('ase.run_hydra.create_rlgpu_env num_actions: {:d}'.format(env.num_actions))
+    print('ase.run_hydra.create_rlgpu_env num_obs: {:d}'.format(env.num_obs))
+    print('ase.run_hydra.create_rlgpu_env num_states: {:d}'.format(env.num_states))
     
     frames = kwargs.pop('frames', 1)
     if frames > 1:
         env = wrappers.FrameStack(env, frames, False)
+    print(f"ase.run_hydra.create_rlgpu_env: RL device: env.num_envs: {env.num_envs}, env.num_actions: {env.num_actions}, env.num_obs: {env.num_obs}, env.num_states: {env.num_states}")
     return env
 
 
@@ -131,6 +133,7 @@ class RLGPUEnv(vecenv.IVecEnv):
         self.use_global_obs = (self.env.num_states > 0)
 
         self.full_state = {}
+        print("ase.run_hydra.RLGPUEnv.__init__: reset get fill state")
         self.full_state["obs"] = self.reset()
         if self.use_global_obs:
             self.full_state["states"] = self.env.get_state()
@@ -198,6 +201,12 @@ def build_alg_runner(algo_observer):
     return runner
 
 def main():
+    log_file = open('output.log', 'w')
+
+    # Redirect stdout and stderr
+    sys.stdout = log_file
+    sys.stderr = log_file
+
     global args
     global cfg
     global cfg_train

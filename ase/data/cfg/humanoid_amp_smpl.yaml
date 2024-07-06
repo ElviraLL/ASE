@@ -1,6 +1,6 @@
 # if given, will override the device setting in gym. 
 env: 
-  numEnvs: 3072
+  numEnvs: 32
   envSpacing: 5
   episodeLength: 300
   isFlagrun: False
@@ -21,7 +21,7 @@ env:
 
   asset:
     assetRoot: "ase/data/assets"
-    assetFileName: "mjcf/smpl_humanoid_1.xml"
+    assetFileName: "mjcf/smpl_humanoid.xml"
 
   plane:
     staticFriction: 1.0
