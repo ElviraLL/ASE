@@ -201,11 +201,11 @@ def build_alg_runner(algo_observer):
     return runner
 
 def main():
-    log_file = open('output.log', 'w')
+    # log_file = open('output.log', 'w')
 
-    # Redirect stdout and stderr
-    sys.stdout = log_file
-    sys.stderr = log_file
+    # # Redirect stdout and stderr
+    # sys.stdout = log_file
+    # sys.stderr = log_file
 
     global args
     global cfg

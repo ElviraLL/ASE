@@ -35,6 +35,7 @@ from env.tasks.humanoid_amp import HumanoidAMP
 
 class HumanoidViewMotion(HumanoidAMP):
     def __init__(self, cfg, sim_params, physics_engine, device_type, device_id, headless):
+        print(f"ase.env.tasks.humanoid_view_motion.HumanoidViewMotion: initializing motion viewer, headless={headless}")
         control_freq_inv = cfg["env"]["controlFrequencyInv"]
         self._motion_dt = control_freq_inv * sim_params.dt
 

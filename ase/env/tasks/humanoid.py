@@ -54,6 +54,8 @@ class Humanoid(BaseTask):
         self._pd_control = self.cfg["env"]["pdControl"]
         if self._pd_control:
             self.control_mode = "pd"
+        else:
+            self.control_mode = None
         self.power_scale = self.cfg["env"]["powerScale"]
 
         self.debug_viz = self.cfg["env"]["enableDebugVis"]
