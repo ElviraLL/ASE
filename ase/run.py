@@ -144,7 +144,7 @@ class RLGPUEnv(vecenv.IVecEnv):
 
         # todo: improve, return only dictinary
         self.full_state["obs"] = next_obs
-        if self.use_global_obs:
+        if self.use_global_obs: # this is not been used in our experiments
             self.full_state["states"] = self.env.get_state()
             return self.full_state, reward, is_done, info
         else:

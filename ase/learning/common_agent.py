@@ -160,7 +160,7 @@ class CommonAgent(a2c_continuous.A2CAgent):
                 if self.print_stats:
                     fps_step = curr_frames / scaled_play_time
                     fps_total = curr_frames / scaled_time
-                    print(f'fps step: {fps_step:.1f} fps total: {fps_total:.1f}')
+                    print(f'fps step: {fps_step:.1f} fps total: {fps_total:.1f}, a_loss: {train_info["actor_loss"]:.4f}, b_loss: {train_info["b_loss"]:.4f}, c_loss: {train_info["critic_loss"]:.4f}, entropy: {train_info["entropy"]:.4f}, kl: {train_info["kl"]:.4f}, disc_reward: {train_info["disc_reward"]:.4f}')
 
                 self.writer.add_scalar('performance/total_fps', curr_frames / scaled_time, frame)
                 self.writer.add_scalar('performance/step_fps', curr_frames / scaled_play_time, frame)
@@ -200,7 +200,7 @@ class CommonAgent(a2c_continuous.A2CAgent):
                 update_time = 0
 
             print(f"ase.learning.common_agent.CommonAgent.train: epoch_num: {epoch_num}, frame: {frame}, total_time: {total_time}, we only track one epoch here")
-            break
+            # break
         return
 
     def set_full_state_weights(self, weights):

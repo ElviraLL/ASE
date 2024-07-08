@@ -114,7 +114,7 @@ class AMPAgent(common_agent.CommonAgent):
             self.experience_buffer.update_data('obses', n, self.obs['obs'])
             print(f"ase.learning.amp_agent.AMPAgent.play_steps: update experience_buffer for obses with n={n}, shape={self.obs['obs'].shape}")
 
-            if self.use_action_masks:
+            if self.use_action_masks: # not been used in our experiment
                 masks = self.vec_env.get_action_masks()
                 res_dict = self.get_masked_action_values(self.obs, masks)
             else:
@@ -125,7 +125,7 @@ class AMPAgent(common_agent.CommonAgent):
                 print(f"ase.learning.amp_agent.AMPAgent.play_steps: update experience_buffer for {k} with n={n}, shape={res_dict[k].shape}")
                 self.experience_buffer.update_data(k, n, res_dict[k]) 
 
-            if self.has_central_value:
+            if self.has_central_value: # not been used in our experiment
                 print(f"ase.learning.amp_agent.AMPAgent.play_steps: has_central_value=True")
                 self.experience_buffer.update_data('states', n, self.obs['states'])
 

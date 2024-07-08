@@ -126,7 +126,7 @@ class BaseTask():
         return sim
 
     def step(self, actions):
-        if self.dr_randomizations.get('actions', None):
+        if self.dr_randomizations.get('actions', None): # this is not been used in our experiment
             actions = self.dr_randomizations['actions']['noise_lambda'](actions)
 
         # apply actions

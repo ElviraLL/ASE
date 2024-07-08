@@ -168,7 +168,7 @@ class Humanoid(BaseTask):
         if (env_ids is None):
             env_ids = to_torch(np.arange(self.num_envs), device=self.device, dtype=torch.long)
         self._reset_envs(env_ids)
-        # TODO: Jingwen Ther is  some extra steps in PHC in the reset functionS
+        # TODO: Jingwen There is  some extra steps in PHC in the reset functionS
         return
 
     def set_char_color(self, col, env_ids):
@@ -690,7 +690,6 @@ class Humanoid(BaseTask):
             forces = self.actions * self.motor_efforts.unsqueeze(0) * self.power_scale
             force_tensor = gymtorch.unwrap_tensor(forces)
             self.gym.set_dof_actuation_force_tensor(self.sim, force_tensor)
-
         return
 
     def post_physics_step(self):
@@ -786,6 +785,33 @@ class Humanoid(BaseTask):
     def _update_debug_viz(self):
         self.gym.clear_lines(self.viewer)
         return
+    
+    def _physics_step(self):
+        print(f"running humanoid _physics_step")
+        # self._debug_humanoid_penatration(self)
+        for i in range(self.control_freq_inv):
+            self.render()
+            self.gym.simulate(self.sim)
+        return
+    
+    def _debug_humanoid_penatration(self):
+        """
+        This function check if feet is penetrating the ground and set the feet color to red i`f it is for all environment.
+        """
+        self.set_char_color([0.54, 0.85, 0.2], range(self.num_envs))
+
+        for i in range(self.num_envs):
+            humanoid_handle = self.humanoid_handles[i]
+            env_ptr = self.envs[i]
+            # set regid body color to green
+            # iterate the joints and check if any of them is penetrating the ground
+            for j in range(self.num_bodies):
+                body_pos = self.gym.get_actor_rigid_body_states(env_ptr, humanoid_handle, gymapi.STATE_POS)
+                print(f"body_pos: {body_pos}")
+                if (body_pos[2] < 0.0):
+                    self._assign_color_to_humanoid_joint(env_ptr, humanoid_handle, j, gymapi.Vec3(1.0, 0.0, 0.0))
+        return
+
 
 #####################################################################
 ###=========================jit functions=========================###
