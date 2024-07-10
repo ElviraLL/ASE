@@ -230,6 +230,11 @@ class MotionLib():
             curr_dof_vels = self._compute_motion_dof_vels(curr_motion)
             curr_motion.dof_vels = curr_dof_vels
 
+            # TODO: Debug-only
+            # print(f"curr_motion.root_translation height: {curr_motion.root_translation[:, 2]}")
+            curr_motion.root_translation[:, 2] += 0.055
+            # print(f"curr_motion.root_translation height: {curr_motion.root_translation[:, 2]}")
+
             # Moving motion tensors to the GPU
             if USE_CACHE:
                 curr_motion = DeviceCache(curr_motion, self._device)                

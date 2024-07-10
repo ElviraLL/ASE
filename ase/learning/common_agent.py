@@ -52,7 +52,7 @@ from tensorboardX import SummaryWriter
 
 class CommonAgent(a2c_continuous.A2CAgent):
     def __init__(self, base_name, config):
-        print("ase.learning.common_agent.CommonAgent: CommonAgent class definition")
+        #print("ase.learning.common_agent.CommonAgent: CommonAgent class definition")
         a2c_common.A2CBase.__init__(self, base_name, config)
 
         self._load_config_params(config)
@@ -65,12 +65,12 @@ class CommonAgent(a2c_continuous.A2CAgent):
         self._save_intermediate = config.get('save_intermediate', False)
 
         net_config = self._build_net_config()
-        print(f"ase.learning.common_agent.CommonAgent.__init__: net_config: {net_config}")
+        #print(f"ase.learning.common_agent.CommonAgent.__init__: net_config: {net_config}")
 
         if self.normalize_input:
             obs_shape = torch_ext.shape_whc_to_cwh(self.obs_shape)
             self.running_mean_std = RunningMeanStd(obs_shape).to(self.ppo_device)
-            print(f"ase.learning.common_agent.CommonAgent.__init__: obs_shape: {obs_shape}, running_mean_std: {self.running_mean_std}")
+            #print(f"ase.learning.common_agent.CommonAgent.__init__: obs_shape: {obs_shape}, running_mean_std: {self.running_mean_std}")
 
         # TODO: Jingwen Different from phc, they have cextra config in net_config,  not sure if it is used in building network. it also has different obs_shape
         # if self.normalize_input:
@@ -92,7 +92,7 @@ class CommonAgent(a2c_continuous.A2CAgent):
 
 
         if self.has_central_value:
-            print(f"ase.learning.common_agent.CommonAgent.__init__: has_central_value: {self.has_central_value}")
+            #print(f"ase.learning.common_agent.CommonAgent.__init__: has_central_value: {self.has_central_value}")
             cv_config = {
                 'state_shape' : torch_ext.shape_whc_to_cwh(self.state_shape), 
                 'value_size' : self.value_size,
@@ -124,14 +124,14 @@ class CommonAgent(a2c_continuous.A2CAgent):
         return
 
     def train(self):
-        print("ase.learning.common_agent.CommonAgent.train: training")
+        #print("ase.learning.common_agent.CommonAgent.train: training")
         self.init_tensors()
         self.last_mean_rewards = -100500
         start_time = time.time()
         total_time = 0
         rep_count = 0
         self.frame = 0
-        print(f"ase.learning.common_agent.CommonAgent.train: env_reset")
+        #print(f"ase.learning.common_agent.CommonAgent.train: env_reset")
         self.obs = self.env_reset()
         self.curr_frames = self.batch_size_envs
         
@@ -160,7 +160,7 @@ class CommonAgent(a2c_continuous.A2CAgent):
                 if self.print_stats:
                     fps_step = curr_frames / scaled_play_time
                     fps_total = curr_frames / scaled_time
-                    print(f'fps step: {fps_step:.1f} fps total: {fps_total:.1f}, a_loss: {train_info["actor_loss"]:.4f}, b_loss: {train_info["b_loss"]:.4f}, c_loss: {train_info["critic_loss"]:.4f}, entropy: {train_info["entropy"]:.4f}, kl: {train_info["kl"]:.4f}, disc_reward: {train_info["disc_reward"]:.4f}')
+                    print(f'fps step: {fps_step:.1f} fps total: {fps_total:.1f}')
 
                 self.writer.add_scalar('performance/total_fps', curr_frames / scaled_time, frame)
                 self.writer.add_scalar('performance/step_fps', curr_frames / scaled_play_time, frame)
@@ -199,7 +199,7 @@ class CommonAgent(a2c_continuous.A2CAgent):
 
                 update_time = 0
 
-            print(f"ase.learning.common_agent.CommonAgent.train: epoch_num: {epoch_num}, frame: {frame}, total_time: {total_time}, we only track one epoch here")
+            #print(f"ase.learning.common_agent.CommonAgent.train: epoch_num: {epoch_num}, frame: {frame}, total_time: {total_time}, we only track one epoch here")
             # break
         return
 
@@ -498,7 +498,7 @@ class CommonAgent(a2c_continuous.A2CAgent):
         return mb_advs
 
     def env_reset(self, env_ids=None):
-        print(f"ase.learning.common_agent.CommonAgent.env_reset: env_ids={env_ids}")
+        #print(f"ase.learning.common_agent.CommonAgent.env_reset: env_ids={env_ids}")
         obs = self.vec_env.reset(env_ids)
         obs = self.obs_to_tensors(obs)
         return obs
@@ -521,10 +521,10 @@ class CommonAgent(a2c_continuous.A2CAgent):
         return
 
     def _build_net_config(self):
-        print(f"ase.learning.common_agent.CommonAgent._build_net_config: self.obs_shape: {self.obs_shape}")
+        #print(f"ase.learning.common_agent.CommonAgent._build_net_config: self.obs_shape: {self.obs_shape}")
 
         obs_shape = torch_ext.shape_whc_to_cwh(self.obs_shape)
-        print(f"ase.learning.common_agent.CommonAgent._build_net_config: obs_shape: {obs_shape}")
+        #print(f"ase.learning.common_agent.CommonAgent._build_net_config: obs_shape: {obs_shape}")
 
         config = {
             'actions_num' : self.actions_num,
@@ -536,16 +536,16 @@ class CommonAgent(a2c_continuous.A2CAgent):
 
     def _setup_action_space(self):
         action_space = self.env_info['action_space']
-        print(f"ase.learning.common_agent.CommonAgent._setup_action_space: action_space: {action_space}")
+        #print(f"ase.learning.common_agent.CommonAgent._setup_action_space: action_space: {action_space}")
 
         self.actions_num = action_space.shape[0]
-        print(f"ase.learning.common_agent.CommonAgent._setup_action_space: actions_num: {self.actions_num}")
+        #print(f"ase.learning.common_agent.CommonAgent._setup_action_space: actions_num: {self.actions_num}")
 
         # todo introduce device instead of cuda()
         self.actions_low = torch.from_numpy(action_space.low.copy()).float().to(self.ppo_device)
         self.actions_high = torch.from_numpy(action_space.high.copy()).float().to(self.ppo_device)
-        print(f"ase.learning.common_agent.CommonAgent._setup_action_space: actions_low: {self.actions_low}")
-        print(f"ase.learning.common_agent.CommonAgent._setup_action_space: actions_high: {self.actions_high}")
+        #print(f"ase.learning.common_agent.CommonAgent._setup_action_space: actions_low: {self.actions_low}")
+        #print(f"ase.learning.common_agent.CommonAgent._setup_action_space: actions_high: {self.actions_high}")
 
         return
 

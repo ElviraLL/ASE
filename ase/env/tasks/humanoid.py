@@ -224,10 +224,10 @@ class Humanoid(BaseTask):
         return
 
     def _setup_character_props(self, key_bodies):
-        print(f"ase.env.tasks.humanoid.Humanoid._setup_character_props: key_bodies: {key_bodies}")
+        #print(f"ase.env.tasks.humanoid.Humanoid._setup_character_props: key_bodies: {key_bodies}")
 
         asset_file = self.cfg["env"]["asset"]["assetFileName"]
-        print(f"ase.env.tasks.humanoid.Humanoid._setup_character_props: asset_file: {asset_file}")
+        #print(f"ase.env.tasks.humanoid.Humanoid._setup_character_props: asset_file: {asset_file}")
 
         # TODO: Jingwen, difference: num_key_bodies = len(key_bodies)
 
@@ -247,15 +247,15 @@ class Humanoid(BaseTask):
         
         elif ("smpl" in asset_file):
             self._dof_body_ids = np.arange(1, len(self._body_names))
-            print(f"ase.env.tasks.humanoid.Humanoid._setup_character_props: self._dof_body_ids {self._dof_body_ids}")
+            #print(f"ase.env.tasks.humanoid.Humanoid._setup_character_props: self._dof_body_ids {self._dof_body_ids}")
             self._dof_offsets = np.linspace(0, len(self._dof_names) * 3, len(self._body_names)).astype(int) # each joint has 3 dof 
-            print(f"ase.env.tasks.humanoid.Humanoid._setup_character_props: self._dof_offsets {self._dof_offsets}")
+            #print(f"ase.env.tasks.humanoid.Humanoid._setup_character_props: self._dof_offsets {self._dof_offsets}")
             self._dof_obs_size = len(self._dof_names) * 6
-            print(f"ase.env.tasks.humanoid.Humanoid._setup_character_props: self._dof_obs_size {self._dof_obs_size}")
+            #print(f"ase.env.tasks.humanoid.Humanoid._setup_character_props: self._dof_obs_size {self._dof_obs_size}")
             self._num_actions = len(self._dof_names) * 3
-            print(f"ase.env.tasks.humanoid.Humanoid._setup_character_props: self._num_actions {self._num_actions}")
+            #print(f"ase.env.tasks.humanoid.Humanoid._setup_character_props: self._num_actions {self._num_actions}")
             self._num_obs = 1 + len(self._body_names) * (3 + 6 + 3 + 3) - 3  # height + num_bodies * 15 (pos + vel + rot + ang_vel) - root_pos
-            print(f"ase.env.tasks.humanoid.Humanoid._setup_character_props: self._num_obs {self._num_obs}")
+            #print(f"ase.env.tasks.humanoid.Humanoid._setup_character_props: self._num_obs {self._num_obs}")
             # TODO: Jingwen, difference: check if there are REDUCED actions, check if ENABLE_MAX_COORD_OBS there is also self._num_self_obs
         else:
             print("Unsupported character config file: {s}".format(asset_file))
@@ -338,7 +338,7 @@ class Humanoid(BaseTask):
             self.envs.append(env_ptr)
 
         dof_prop = self.gym.get_actor_dof_properties(self.envs[0], self.humanoid_handles[0])
-        print(f"ase.env.tasks.humanoid: dof_prop: {dof_prop}")
+        #print(f"ase.env.tasks.humanoid: dof_prop: {dof_prop}")
         # log the dof limits
         # ('hasLimits', 'lower', 'upper', 'driveMode', 'velocity', 'effort', 'stiffness', 'damping', 'friction', 'armature')
 
@@ -454,16 +454,16 @@ class Humanoid(BaseTask):
         return
 
     def _build_pd_action_offset_scale(self):
-        print(f"ase.env.tass.humanoid.py._build_pd_action_offset_scale: Building PD action offset and scale ")
-        print(f"ase.env.tass.humanoid.py._build_pd_action_offset_scale: self._dof_offsets {self._dof_offsets}")
+        #print(f"ase.env.tass.humanoid.py._build_pd_action_offset_scale: Building PD action offset and scale ")
+        #print(f"ase.env.tass.humanoid.py._build_pd_action_offset_scale: self._dof_offsets {self._dof_offsets}")
         num_joints = len(self._dof_offsets) - 1
-        print(f"ase.env.tass.humanoid.py._build_pd_action_offset_scale: num_joints {num_joints}")
+        #print(f"ase.env.tass.humanoid.py._build_pd_action_offset_scale: num_joints {num_joints}")
         
         lim_low = self.dof_limits_lower.cpu().numpy()
         lim_high = self.dof_limits_upper.cpu().numpy()
-        print(f"ASE.env.tass.humanoid.py._build_pd_action_offset_scale: get dof_limits_lower: lim_low {lim_low}")
-        print(f"ASE.env.tass.humanoid.py._build_pd_action_offset_scale: get dof_limits_upper: lim_high {lim_high}")
-        print(f"ASE.env.tass.humanoid.py._build_pd_action_offset_scale: length of lim_low {len(lim_low)}, length of lim_high {len(lim_high)}")
+        #print(f"ase.env.tass.humanoid.py._build_pd_action_offset_scale: get dof_limits_lower: lim_low {lim_low}")
+        #print(f"ase.env.tass.humanoid.py._build_pd_action_offset_scale: get dof_limits_upper: lim_high {lim_high}")
+        #print(f"ase.env.tass.humanoid.py._build_pd_action_offset_scale: length of lim_low {len(lim_low)}, length of lim_high {len(lim_high)}")
 
         for j in range(num_joints):
             print(" ")
@@ -475,7 +475,7 @@ class Humanoid(BaseTask):
             # print(f"dof_zize: {dof_size}")
 
             if (dof_size == 3):
-                print(f"ASE.env.tass.humanoid.py._build_pd_action_offset_scale: dof_size == 3")
+                #print(f"ase.env.tass.humanoid.py._build_pd_action_offset_scale: dof_size == 3")
                 curr_low = lim_low[dof_offset:(dof_offset + dof_size)]
                 curr_high = lim_high[dof_offset:(dof_offset + dof_size)]
                 curr_low = np.max(np.abs(curr_low))
@@ -509,15 +509,15 @@ class Humanoid(BaseTask):
                 lim_high[dof_offset] =  curr_high
                 # print(f"lim_low: {lim_low}")
                 # print(f"lim_high: {lim_high}")\
-        print(f"ASE.env.tass.humanoid.py._build_pd_action_offset_scale: after loop:")
-        print(f"ASE.env.tass.humanoid.py._build_pd_action_offset_scale: get dof_limits_lower: lim_low {lim_low}")
-        print(f"ASE.env.tass.humanoid.py._build_pd_action_offset_scale: get dof_limits_upper: lim_high {lim_high}")
+        #print(f"ase.env.tass.humanoid.py._build_pd_action_offset_scale: after loop:")
+        #print(f"ase.env.tass.humanoid.py._build_pd_action_offset_scale: get dof_limits_lower: lim_low {lim_low}")
+        #print(f"ase.env.tass.humanoid.py._build_pd_action_offset_scale: get dof_limits_upper: lim_high {lim_high}")
 
         self._pd_action_offset = 0.5 * (lim_high + lim_low)
         self._pd_action_scale = 0.5 * (lim_high - lim_low)
         self._pd_action_offset = to_torch(self._pd_action_offset, device=self.device)
         self._pd_action_scale = to_torch(self._pd_action_scale, device=self.device)
-        print(f"ase.env.tass.humanoid.py._build_pd_action_offset_scale: self._pd_action_scale {self._pd_action_scale}")
+        #print(f"ase.env.tass.humanoid.py._build_pd_action_offset_scale: self._pd_action_scale {self._pd_action_scale}")
         
         # TODO: Jingwen, difference: left, right knee has different pd_action_scale
         # if self.humanoid_type in ["smpl", "smplh", "smplx"]:
@@ -716,7 +716,7 @@ class Humanoid(BaseTask):
         return
 
     def _build_key_body_ids_tensor(self, key_body_names):
-        print(f"ase.env.tasks.humanoid.py.Humanoid._build_key_body_ids_tensor: key_body_names {key_body_names}")
+        #print(f"ase.env.tasks.humanoid.py.Humanoid._build_key_body_ids_tensor: key_body_names {key_body_names}")
         # TODO: Jingwen, difference: 
         # body_ids = [self._body_names.index(name) for name in key_body_names]
         # body_ids = to_torch(body_ids, device=self.device, dtype=torch.long)
@@ -731,7 +731,7 @@ class Humanoid(BaseTask):
             body_ids.append(body_id)
 
         body_ids = to_torch(body_ids, device=self.device, dtype=torch.long)
-        print(f"ase.env.tasks.humanoid.py.Humanoid._build_key_body_ids_tensor: body_ids {body_ids}")
+        #print(f"ase.env.tasks.humanoid.py.Humanoid._build_key_body_ids_tensor: body_ids {body_ids}")
         return body_ids
 
     def _build_contact_body_ids_tensor(self, contact_body_names):
@@ -787,7 +787,6 @@ class Humanoid(BaseTask):
         return
     
     def _physics_step(self):
-        print(f"running humanoid _physics_step")
         # self._debug_humanoid_penatration(self)
         for i in range(self.control_freq_inv):
             self.render()
@@ -946,13 +945,13 @@ def compute_humanoid_reset(reset_buf, progress_buf, contact_buf, contact_body_id
 
     if (enable_early_termination):
         masked_contact_buf = contact_buf.clone()
-        # print(f"ase.humanoid.compute_humanoid_reset: masked_contact_buf: {masked_contact_buf.shape}") # should be same as the data size?
+        # #print(f"ase.humanoid.compute_humanoid_reset: masked_contact_buf: {masked_contact_buf.shape}") # should be same as the data size?
         masked_contact_buf[:, contact_body_ids, :] = 0
-        # print(f"ase.humanoid.compute_humanoid_reset: contact_body_ids: {contact_body_ids}")
+        # #print(f"ase.humanoid.compute_humanoid_reset: contact_body_ids: {contact_body_ids}")
         fall_contact = torch.any(torch.abs(masked_contact_buf) > 0.1, dim=-1)
-        # print(f"ase.humanoid.compute_humanoid_reset: fall_contact: {fall_contact.shape}")
+        # #print(f"ase.humanoid.compute_humanoid_reset: fall_contact: {fall_contact.shape}")
         fall_contact = torch.any(fall_contact, dim=-1)
-        # print(f"ase.humanoid.compute_humanoid_reset: fall_contact: {fall_contact.shape}")
+        # #print(f"ase.humanoid.compute_humanoid_reset: fall_contact: {fall_contact.shape}")
 
         body_height = rigid_body_pos[..., 2]
         fall_height = body_height < termination_heights

@@ -135,12 +135,12 @@ class HumanoidAMP(Humanoid):
         return
         
     def _setup_character_props(self, key_bodies):
-        print(f"phc.env.tasks.humanoid_amp.HumanoidAMP._setup_character_props: setting up character properties...")
-        print(f"phc.env.tasks.humanoid_amp.HumanoidAMP._setup_character_props: calling parent method")
+        print(f"ase.env.tasks.humanoid_amp.HumanoidAMP._setup_character_props: setting up character properties...")
+        print(f"ase.env.tasks.humanoid_amp.HumanoidAMP._setup_character_props: calling parent method")
         super()._setup_character_props(key_bodies)
 
         asset_file = self.cfg["env"]["asset"]["assetFileName"]
-        print(f"phc.env.tasks.humanoid_amp.HumanoidAMP._setup_character_props: asset_file is {asset_file}")
+        print(f"ase.env.tasks.humanoid_amp.HumanoidAMP._setup_character_props: asset_file is {asset_file}")
         num_key_bodies = len(key_bodies)
 
         if (asset_file == "mjcf/amp_humanoid.xml"):
@@ -156,7 +156,7 @@ class HumanoidAMP(Humanoid):
         else:
             print("Unsupported character config file: {s}".format(asset_file))
             assert(False)
-        print(f"ASE.env.tasks.humanoid_amp.HumanoidAMP._setup_character_props: _num_amp_obs_per_step is {self._num_amp_obs_per_step}")
+        #print(f"ase.env.tasks.humanoid_amp.HumanoidAMP._setup_character_props: _num_amp_obs_per_step is {self._num_amp_obs_per_step}")
 
         # TODO: Jingwen: difference here 
         # if (self._enable_hist_obs):

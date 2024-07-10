@@ -35,7 +35,7 @@ from env.tasks.humanoid_amp import HumanoidAMP
 
 class HumanoidViewMotion(HumanoidAMP):
     def __init__(self, cfg, sim_params, physics_engine, device_type, device_id, headless):
-        print(f"ase.env.tasks.humanoid_view_motion.HumanoidViewMotion: initializing motion viewer, headless={headless}")
+        #print(f"ase.env.tasks.humanoid_view_motion.HumanoidViewMotion: initializing motion viewer, headless={headless}")
         control_freq_inv = cfg["env"]["controlFrequencyInv"]
         self._motion_dt = control_freq_inv * sim_params.dt
 
@@ -90,6 +90,7 @@ class HumanoidViewMotion(HumanoidAMP):
                             root_vel=root_vel, 
                             root_ang_vel=root_ang_vel, 
                             dof_vel=dof_vel)
+
 
         env_ids_int32 = self._humanoid_actor_ids[env_ids]
         self.gym.set_actor_root_state_tensor_indexed(self.sim,

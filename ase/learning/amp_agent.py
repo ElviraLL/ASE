@@ -101,73 +101,73 @@ class AMPAgent(common_agent.CommonAgent):
         return
 
     def play_steps(self):
-        print("ase.learning.amp_agent.AMPAgent.play_steps: start")
+        #print("ase.learning.amp_agent.AMPAgent.play_steps: start")
         self.set_eval()
 
         epinfos = []
         done_indices = []
         update_list = self.update_list
-        print("ase.learning.amp_agent.AMPAgent.play_steps: update_list=", update_list)
+        #print("ase.learning.amp_agent.AMPAgent.play_steps: update_list=", update_list)
         for n in range(self.horizon_length):
 
             self.obs = self.env_reset(done_indices) # reseat the envs that are done?
             self.experience_buffer.update_data('obses', n, self.obs['obs'])
-            print(f"ase.learning.amp_agent.AMPAgent.play_steps: update experience_buffer for obses with n={n}, shape={self.obs['obs'].shape}")
+            #print(f"ase.learning.amp_agent.AMPAgent.play_steps: update experience_buffer for obses with n={n}, shape={self.obs['obs'].shape}")
 
             if self.use_action_masks: # not been used in our experiment
                 masks = self.vec_env.get_action_masks()
                 res_dict = self.get_masked_action_values(self.obs, masks)
             else:
-                print(f"ase.learning.amp_agent.AMPAgent.play_steps: not using action masks")
+                #print(f"ase.learning.amp_agent.AMPAgent.play_steps: not using action masks")
                 res_dict = self.get_action_values(self.obs, self._rand_action_probs)
 
             for k in update_list:
-                print(f"ase.learning.amp_agent.AMPAgent.play_steps: update experience_buffer for {k} with n={n}, shape={res_dict[k].shape}")
+                #print(f"ase.learning.amp_agent.AMPAgent.play_steps: update experience_buffer for {k} with n={n}, shape={res_dict[k].shape}")
                 self.experience_buffer.update_data(k, n, res_dict[k]) 
 
             if self.has_central_value: # not been used in our experiment
-                print(f"ase.learning.amp_agent.AMPAgent.play_steps: has_central_value=True")
+                #print(f"ase.learning.amp_agent.AMPAgent.play_steps: has_central_value=True")
                 self.experience_buffer.update_data('states', n, self.obs['states'])
 
-            print(f"ase.learning.amp_agent.AMPAgent.play_steps: running env_step with res_dict['actions']: {res_dict['actions'].shape}")
+            #print(f"ase.learning.amp_agent.AMPAgent.play_steps: running env_step with res_dict['actions']: {res_dict['actions'].shape}")
             self.obs, rewards, self.dones, infos = self.env_step(res_dict['actions'])
-            print(f"ase.learning.amp_agent.AMPAgent.play_steps: after env_step: new self.obs: {self.obs['obs'].shape}, new rewards: {rewards.shape}, self.dones: {self.dones.shape}")
-            print(f"ase.learning.amp_agent: play_steps: infos: {infos.keys()}:")
-            for k, v in infos.items():
-                if isinstance(v, torch.Tensor):
-                    print(f"ase.learning.amp_agent: play_steps: infos: key: {k}, value: {v.shape}")
-                else:
-                    print(f"ase.learning.amp_agent: play_steps: infos: key: {k}, value: {v}")
+            #print(f"ase.learning.amp_agent.AMPAgent.play_steps: after env_step: new self.obs: {self.obs['obs'].shape}, new rewards: {rewards.shape}, self.dones: {self.dones.shape}")
+            #print(f"ase.learning.amp_agent: play_steps: infos: {infos.keys()}:")
+            # for k, v in infos.items():
+            #     if isinstance(v, torch.Tensor):
+            #         print(f"ase.learning.amp_agent: play_steps: infos: key: {k}, value: {v.shape}")
+            #     else:
+            #         print(f"ase.learning.amp_agent: play_steps: infos: key: {k}, value: {v}")
 
 
             shaped_rewards = self.rewards_shaper(rewards)
-            for i in range(len(shaped_rewards)):
-                for j in range(len(shaped_rewards[i])):
-                    if shaped_rewards[i][j] != 0:
-                        print(f"ase.learning.amp_agent: play_steps: shaped_rewards: {shaped_rewards[i][j]}")
+            # for i in range(len(shaped_rewards)):
+            #     for j in range(len(shaped_rewards[i])):
+            #         if shaped_rewards[i][j] != 0:
+            #             print(f"ase.learning.amp_agent: play_steps: shaped_rewards: {shaped_rewards[i][j]}")
 
-            print(f"ase.learning.amp_agent: play_steps: update experience_buffer with key: rewards, n: {n}, shaped_rewards: {shaped_rewards.shape}")
+            #print(f"ase.learning.amp_agent: play_steps: update experience_buffer with key: rewards, n: {n}, shaped_rewards: {shaped_rewards.shape}")
             self.experience_buffer.update_data('rewards', n, shaped_rewards)
 
-            print(f"ase.learning.amp_agent: play_steps: update experience_buffer with key: next_obses, n: {n}, self.obs['obs']: {self.obs['obs'].shape}")
+            #print(f"ase.learning.amp_agent: play_steps: update experience_buffer with key: next_obses, n: {n}, self.obs['obs']: {self.obs['obs'].shape}")
             self.experience_buffer.update_data('next_obses', n, self.obs['obs'])
 
-            print(f"ase.learning.amp_agent: play_steps: update experience_buffer with key: dones, n: {n}, self.dones: {self.dones.shape}")
+            #print(f"ase.learning.amp_agent: play_steps: update experience_buffer with key: dones, n: {n}, self.dones: {self.dones.shape}")
             self.experience_buffer.update_data('dones', n, self.dones)
 
-            print(f"ase.learning.amp_agent: play_steps: update experience_buffer with key: amp_obs, n: {n}, infos['amp_obs']: {infos['amp_obs'].shape}")
+            #print(f"ase.learning.amp_agent: play_steps: update experience_buffer with key: amp_obs, n: {n}, infos['amp_obs']: {infos['amp_obs'].shape}")
             self.experience_buffer.update_data('amp_obs', n, infos['amp_obs'])
 
-            print(f"ase.learning.amp_agent: play_steps: update experience_buffer with key: rand_action_mask, n: {n}, rand_action_mask: {res_dict['rand_action_mask'].shape}") #TODO: Jingwen here difference: there is no rand_action_mask in phc
+            #print(f"ase.learning.amp_agent: play_steps: update experience_buffer with key: rand_action_mask, n: {n}, rand_action_mask: {res_dict['rand_action_mask'].shape}") #TODO: Jingwen here difference: there is no rand_action_mask in phc
             self.experience_buffer.update_data('rand_action_mask', n, res_dict['rand_action_mask'])
 
             terminated = infos['terminate'].float()
             terminated = terminated.unsqueeze(-1)
-            print(f"ase.learning.amp_agent: play_steps: terminated: {terminated.shape}") # TODO: Jingwen difference: there is no terminated flag in ase
+            #print(f"ase.learning.amp_agent: play_steps: terminated: {terminated.shape}") # TODO: Jingwen difference: there is no terminated flag in ase
             
             # TODO: Jingwen difference: there is no reward_raw here in ase
 
-            print(f"ase.learning.amp_agent: play_steps: eval_critic with obs: {self.obs['obs'].shape}")
+            #print(f"ase.learning.amp_agent: play_steps: eval_critic with obs: {self.obs['obs'].shape}")
             next_vals = self._eval_critic(self.obs)
             next_vals *= (1.0 - terminated)
             self.experience_buffer.update_data('next_values', n, next_vals)
@@ -192,16 +192,16 @@ class AMPAgent(common_agent.CommonAgent):
             done_indices = done_indices[:, 0]
 
         print("\n############################## Finished horizon_length ##############################")
-        print(f"ase.learning.amp_agent: play_steps: preparing minibatch data")
+        #print(f"ase.learning.amp_agent: play_steps: preparing minibatch data")
         print("############################## Finished horizon_length ##############################")
         mb_fdones = self.experience_buffer.tensor_dict['dones'].float()
         mb_values = self.experience_buffer.tensor_dict['values']
         mb_next_values = self.experience_buffer.tensor_dict['next_values']
-        print(f"ase.learning.amp_agent: play_steps: mb_fdones: {mb_fdones.shape}, mb_values: {mb_values.shape}, mb_next_values: {mb_next_values.shape}")
+        #print(f"ase.learning.amp_agent: play_steps: mb_fdones: {mb_fdones.shape}, mb_values: {mb_values.shape}, mb_next_values: {mb_next_values.shape}")
 
         mb_rewards = self.experience_buffer.tensor_dict['rewards']
         mb_amp_obs = self.experience_buffer.tensor_dict['amp_obs']
-        print(f"ase.learning.amp_agent: play_steps: mb_rewards: {mb_rewards.shape}, mb_amp_obs: {mb_amp_obs.shape}")
+        #print(f"ase.learning.amp_agent: play_steps: mb_rewards: {mb_rewards.shape}, mb_amp_obs: {mb_amp_obs.shape}")
         # TODO: Jingwen: what is amp reward and what is mb reward?
         amp_rewards = self._calc_amp_rewards(mb_amp_obs)
         mb_rewards = self._combine_rewards(mb_rewards, amp_rewards)
@@ -216,22 +216,22 @@ class AMPAgent(common_agent.CommonAgent):
         for k, v in amp_rewards.items():
             batch_dict[k] = a2c_common.swap_and_flatten01(v)
 
-        print(f"ase.learning.amp_agent: play_steps: batch_dict: {batch_dict.keys()}:")
-        for k, v in batch_dict.items():
-            if isinstance(v, torch.Tensor):
-                print(f"ase.learning.amp_agent: play_steps: key: {k}, value: {v.shape}")
-            elif isinstance(v, dict):
-                for kk, vv in v.items():
-                    print(f"ase.learning.amp_agent: play_steps: key: {k}, dict key: {kk}, value: {vv.shape}")
-            else:
-                print(f"ase.learning.amp_agent: play_steps: key: {k}, value: {v}")
+        #print(f"ase.learning.amp_agent: play_steps: batch_dict: {batch_dict.keys()}:")
+        # for k, v in batch_dict.items():
+        #     if isinstance(v, torch.Tensor):
+        #         print(f"ase.learning.amp_agent: play_steps: key: {k}, value: {v.shape}")
+        #     elif isinstance(v, dict):
+        #         for kk, vv in v.items():
+        #             print(f"ase.learning.amp_agent: play_steps: key: {k}, dict key: {kk}, value: {vv.shape}")
+        #     else:
+        #         print(f"ase.learning.amp_agent: play_steps: key: {k}, value: {v}")
 
         return batch_dict
     
     def get_action_values(self, obs_dict, rand_action_probs):
-        print(f"ase.learning.amp_agent.AMPAgent.get_action_values: start, with rand_action_probs.shape={rand_action_probs.shape}")
+        #print(f"ase.learning.amp_agent.AMPAgent.get_action_values: start, with rand_action_probs.shape={rand_action_probs.shape}")
         processed_obs = self._preproc_obs(obs_dict['obs'])
-        print(f"ase.learning.amp_agent.AMPAgent.get_action_values: processed_obs.shape={processed_obs.shape}")
+        #print(f"ase.learning.amp_agent.AMPAgent.get_action_values: processed_obs.shape={processed_obs.shape}")
 
         self.model.eval()
         input_dict = {
@@ -244,7 +244,7 @@ class AMPAgent(common_agent.CommonAgent):
         with torch.no_grad():
             res_dict = self.model(input_dict) # TODO: Jingwen: quesiton does res_dict contain the action or is it getting from res_dict['mus']?
             if self.has_central_value:
-                print(f"ase.learning.amp_agent.AMPAgent.get_action_values: has_central_value=True")
+                #print(f"ase.learning.amp_agent.AMPAgent.get_action_values: has_central_value=True")
                 states = obs_dict['states']
                 input_dict = {
                     'is_train': False,
@@ -254,23 +254,23 @@ class AMPAgent(common_agent.CommonAgent):
                 res_dict['values'] = value
 
         if self.normalize_value:
-            print(f"ase.learning.amp_agent.AMPAgent.get_action_values: normalize_value=True, before normalizing, res_dict['values']: {res_dict['values']}")
+            #print(f"ase.learning.amp_agent.AMPAgent.get_action_values: normalize_value=True, before normalizing, res_dict['values']: {res_dict['values']}")
             res_dict['values'] = self.value_mean_std(res_dict['values'], True)
-            print(f"ase.learning.amp_agent.AMPAgent.get_action_values: after normalizing, res_dict['values']: {res_dict['values']}")
+            #print(f"ase.learning.amp_agent.AMPAgent.get_action_values: after normalizing, res_dict['values']: {res_dict['values']}")
 
-        print(f"ase.learning.amp_agent.AMPAgent.get_action_values: before applying rand_action_mask:")
-        for key, value in res_dict.items():
-            if isinstance(value, torch.Tensor):
-                print(f"ase.learning.amp_agent.AMPAgent.get_action_values: key: {key}, value: {value.shape}")
-            else:
-                print(f"ase.learning.amp_agent.AMPAgent.get_action_values: key: {key}, value: {value}")
+        #print(f"ase.learning.amp_agent.AMPAgent.get_action_values: before applying rand_action_mask:")
+        # for key, value in res_dict.items():
+        #     if isinstance(value, torch.Tensor):
+        #         print(f"ase.learning.amp_agent.AMPAgent.get_action_values: key: {key}, value: {value.shape}")
+        #     else:
+        #         print(f"ase.learning.amp_agent.AMPAgent.get_action_values: key: {key}, value: {value}")
         
         # apply rand action mask
         rand_action_mask = torch.bernoulli(rand_action_probs)
         det_action_mask = rand_action_mask == 0.0
-        print(f"ase.learning.amp_agent.AMPAgent.get_action_values: before applying rand_action_mask, res_dict['mus']={res_dict['mus']}")
+        #print(f"ase.learning.amp_agent.AMPAgent.get_action_values: before applying rand_action_mask, res_dict['mus']={res_dict['mus']}")
         res_dict['actions'][det_action_mask] = res_dict['mus'][det_action_mask]
-        print(f"ase.learning.amp_agent.AMPAgent.get_action_values: after applying rand_action_mask, res_dict['action']={res_dict['actions']}")
+        #print(f"ase.learning.amp_agent.AMPAgent.get_action_values: after applying rand_action_mask, res_dict['action']={res_dict['actions']}")
         res_dict['rand_action_mask'] = rand_action_mask
         return res_dict
 

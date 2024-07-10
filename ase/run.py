@@ -89,7 +89,7 @@ def create_rlgpu_env(**kwargs):
     frames = kwargs.pop('frames', 1)
     if frames > 1:
         env = wrappers.FrameStack(env, frames, False)
-    print(f"ase.run_hydra.create_rlgpu_env: RL device: env.num_envs: {env.num_envs}, env.num_actions: {env.num_actions}, env.num_obs: {env.num_obs}, env.num_states: {env.num_states}")
+    #print(f"ase.run_hydra.create_rlgpu_env: RL device: env.num_envs: {env.num_envs}, env.num_actions: {env.num_actions}, env.num_obs: {env.num_obs}, env.num_states: {env.num_states}")
     return env
 
 
@@ -133,7 +133,7 @@ class RLGPUEnv(vecenv.IVecEnv):
         self.use_global_obs = (self.env.num_states > 0)
 
         self.full_state = {}
-        print("ase.run_hydra.RLGPUEnv.__init__: reset get fill state")
+        #print("ase.run_hydra.RLGPUEnv.__init__: reset get fill state")
         self.full_state["obs"] = self.reset()
         if self.use_global_obs:
             self.full_state["states"] = self.env.get_state()
