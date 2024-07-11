@@ -151,7 +151,7 @@ class HumanoidAMP(Humanoid):
             self._num_amp_obs_per_step = 13 + self._dof_obs_size + len(self._dof_names) * 3 + 3 * num_key_bodies # TODO: Jingwen: difference here, in phc, there is 6 + 3
             # TODO: Jingwen: difference here, in phc, there is 
             # if self._has_dof_subset:
-            #     print(f"phc.env.tasks.humanoid_amp.HumanoidAMP._setup_character_props: self._has_dof_subset")
+            #     print(f"ase.env.tasks.humanoid_amp.HumanoidAMP._setup_character_props: self._has_dof_subset")
             #     self._num_amp_obs_per_step -= (6 + 3) * int((len(self._dof_names) * 3 - len(self.dof_subset)) / 3)
         else:
             print("Unsupported character config file: {s}".format(asset_file))
@@ -161,7 +161,7 @@ class HumanoidAMP(Humanoid):
         # TODO: Jingwen: difference here 
         # if (self._enable_hist_obs):
         #     self._num_self_obs += self._num_amp_obs_steps * self._num_amp_obs_per_step
-        #     print(f"phc.env.tasks.humanoid_amp.HumanoidAMP._setup_character_props:  self._enable_hist_obsis true, _num_self_obs is {self._num_self_obs}")
+        #     print(f"ase.env.tasks.humanoid_amp.HumanoidAMP._setup_character_props:  self._enable_hist_obsis true, _num_self_obs is {self._num_self_obs}")
         return
 
     def _load_motion(self, motion_file):
@@ -184,7 +184,7 @@ class HumanoidAMP(Humanoid):
         return
 
     def _reset_actors(self, env_ids):
-        print(f"phc.env.tasks.humanoid_amp.HumanoidAMP._reset_actors: resetting actors...")
+        print(f"ase.env.tasks.humanoid_amp.HumanoidAMP._reset_actors: resetting actors...")
         if (self._state_init == HumanoidAMP.StateInit.Default):
             self._reset_default(env_ids)
         elif (self._state_init == HumanoidAMP.StateInit.Start
@@ -204,7 +204,7 @@ class HumanoidAMP(Humanoid):
         return
 
     def _reset_ref_state_init(self, env_ids):
-        print(f"phc.env.tasks.humanoid_amp.HumanoidAMP._reset_ref_state_init: resetting reference state init...")
+        print(f"ase.env.tasks.humanoid_amp.HumanoidAMP._reset_ref_state_init: resetting reference state init...")
         # TODO: Jingwen: difference here,
         num_envs = env_ids.shape[0]
         motion_ids = self._motion_lib.sample_motions(num_envs)

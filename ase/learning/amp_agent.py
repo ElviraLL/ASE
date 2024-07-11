@@ -56,7 +56,7 @@ class AMPAgent(common_agent.CommonAgent):
         # if self.normalize_value: # True
         #     self.value_mean_std = RunningMeanStd((1,)).to(self.ppo_device)  # Override and get new value
 
-        # print(f"phc.learning.amp_agent: norm_disc_reward: {norm_disc_reward}")
+        # print(f"ase.learning.amp_agent: norm_disc_reward: {norm_disc_reward}")
         # if (norm_disc_reward):
         #     self._disc_reward_mean_std = RunningMeanStd((1,)).to(self.ppo_device)
         # else:
@@ -191,17 +191,16 @@ class AMPAgent(common_agent.CommonAgent):
                 
             done_indices = done_indices[:, 0]
 
-        print("\n############################## Finished horizon_length ##############################")
-        #print(f"ase.learning.amp_agent: play_steps: preparing minibatch data")
-        print("############################## Finished horizon_length ##############################")
+        print(f"\n############################## Finished play mode horizon_length: {self.horizon_length } ##############################")
+        print(f"ase.learning.amp_agent: play_steps: preparing minibatch data")
         mb_fdones = self.experience_buffer.tensor_dict['dones'].float()
         mb_values = self.experience_buffer.tensor_dict['values']
         mb_next_values = self.experience_buffer.tensor_dict['next_values']
-        #print(f"ase.learning.amp_agent: play_steps: mb_fdones: {mb_fdones.shape}, mb_values: {mb_values.shape}, mb_next_values: {mb_next_values.shape}")
+        print(f"ase.learning.amp_agent: play_steps: mb_fdones: {mb_fdones.shape}, mb_values: {mb_values.shape}, mb_next_values: {mb_next_values.shape}")
 
         mb_rewards = self.experience_buffer.tensor_dict['rewards']
         mb_amp_obs = self.experience_buffer.tensor_dict['amp_obs']
-        #print(f"ase.learning.amp_agent: play_steps: mb_rewards: {mb_rewards.shape}, mb_amp_obs: {mb_amp_obs.shape}")
+        print(f"ase.learning.amp_agent: play_steps: mb_rewards: {mb_rewards.shape}, mb_amp_obs: {mb_amp_obs.shape}")
         # TODO: Jingwen: what is amp reward and what is mb reward?
         amp_rewards = self._calc_amp_rewards(mb_amp_obs)
         mb_rewards = self._combine_rewards(mb_rewards, amp_rewards)
@@ -226,6 +225,7 @@ class AMPAgent(common_agent.CommonAgent):
         #     else:
         #         print(f"ase.learning.amp_agent: play_steps: key: {k}, value: {v}")
 
+        print(f"ase.learning.amp_agent: play_steps: end")
         return batch_dict
     
     def get_action_values(self, obs_dict, rand_action_probs):

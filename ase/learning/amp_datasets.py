@@ -34,8 +34,8 @@ class AMPDataset(datasets.PPODataset):
     def __init__(self, batch_size, minibatch_size, is_discrete, is_rnn, device, seq_len):
         super().__init__(batch_size, minibatch_size, is_discrete, is_rnn, device, seq_len)
         self._idx_buf = torch.randperm(batch_size)
-        print(f"phc.learning.amp_datasets.AMPDataset: batch_size: {batch_size}, minibatch_size: {minibatch_size}, is_discrete: {is_discrete}, is_rnn: {is_rnn}, device: {device}, seq_len: {seq_len}")
-        print(f"phc.learning.amp_datasets.AMPDataset: _idx_buf: {self._idx_buf}")
+        print(f"ase.learning.amp_datasets.AMPDataset: batch_size: {batch_size}, minibatch_size: {minibatch_size}, is_discrete: {is_discrete}, is_rnn: {is_rnn}, device: {device}, seq_len: {seq_len}")
+        print(f"ase.learning.amp_datasets.AMPDataset: _idx_buf: {self._idx_buf}")
         return
     
     def update_mu_sigma(self, mu, sigma):	  

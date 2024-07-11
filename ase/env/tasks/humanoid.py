@@ -401,10 +401,10 @@ class Humanoid(BaseTask):
         # TODO: Jingwen, phc setup lots of dof prop here including 
         # 1. check if self.has_shape_variation: and setup different self.kp_scale and self._kd_scale
         # 2. dof_prop["driveMode"][:] = gymapi.DOF_MODE_POS
-        # print(f"phc.env.tasks.humanoid.Humanoid._build_env: setting up dof_prop")
+        # print(f"ase.env.tasks.humanoid.Humanoid._build_env: setting up dof_prop")
         # dof_prop = self.gym.get_asset_dof_properties(humanoid_asset)
         # if self.has_shape_variation:
-        #     print(f"phc.env.tasks.humanoid.Humanoid._build_env: has_shape_variation")
+        #     print(f"ase.env.tasks.humanoid.Humanoid._build_env: has_shape_variation")
         #     pd_scale = humanoid_mass / self.cfg['env'].get('default_humanoid_mass', 77.0 if self._real_weight else 35.0)
         #     self._kp_scale = pd_scale * self._kp_scale
         #     self._kd_scale = pd_scale * self._kd_scale
@@ -521,38 +521,38 @@ class Humanoid(BaseTask):
         
         # TODO: Jingwen, difference: left, right knee has different pd_action_scale
         # if self.humanoid_type in ["smpl", "smplh", "smplx"]:
-        #     print(f"phc.env.tass.humanoid.py._build_pd_action_offset_scale: {self.humanoid_type} in [smpl, smplh, smplx]")
+        #     print(f"ase.env.tass.humanoid.py._build_pd_action_offset_scale: {self.humanoid_type} in [smpl, smplh, smplx]")
         #     self._L_knee_dof_idx = self._dof_names.index("L_Knee") * 3 + 1
         #     self._R_knee_dof_idx = self._dof_names.index("R_Knee") * 3 + 1
 
         #     # ZL: Modified SMPL to give stronger knee
         #     self._pd_action_scale[self._L_knee_dof_idx] = 5
         #     self._pd_action_scale[self._R_knee_dof_idx] = 5
-        #     print(f"phc.env.tass.humanoid.py._build_pd_action_offset_scale: self._pd_action_scale {self._pd_action_scale}")
+        #     print(f"ase.env.tass.humanoid.py._build_pd_action_offset_scale: self._pd_action_scale {self._pd_action_scale}")
             
         return
 
     def _build_pd_action_offset_scale_new(self):
-        print(f"phc.env.tass.humanoid.py._build_pd_action_offset_scale: Building PD action offset and scale for smpl asset")
-        print(f"phc.env.tass.humanoid.py._build_pd_action_offset_scale: self._dof_offsets {self._dof_offsets}")
+        print(f"ase.env.tass.humanoid.py._build_pd_action_offset_scale: Building PD action offset and scale for smpl asset")
+        print(f"ase.env.tass.humanoid.py._build_pd_action_offset_scale: self._dof_offsets {self._dof_offsets}")
         num_joints = len(self._dof_offsets) - 1
-        print(f"phc.env.tass.humanoid.py._build_pd_action_offset_scale: num_joints {num_joints}")
+        print(f"ase.env.tass.humanoid.py._build_pd_action_offset_scale: num_joints {num_joints}")
 
         lim_low = self.dof_limits_lower.cpu().numpy()
         lim_high = self.dof_limits_upper.cpu().numpy()
-        print(f"phc.env.tass.humanoid.py._build_pd_action_offset_scale: get dof_limits_lower: lim_low {lim_low}")
-        print(f"phc.env.tass.humanoid.py._build_pd_action_offset_scale: get dof_limits_upper: lim_high {lim_high}")
-        print(f"phc.env.tass.humanoid.py._build_pd_action_offset_scale: length of lim_low {len(lim_low)}, length of lim_high {len(lim_high)}")
+        print(f"ase.env.tass.humanoid.py._build_pd_action_offset_scale: get dof_limits_lower: lim_low {lim_low}")
+        print(f"ase.env.tass.humanoid.py._build_pd_action_offset_scale: get dof_limits_upper: lim_high {lim_high}")
+        print(f"ase.env.tass.humanoid.py._build_pd_action_offset_scale: length of lim_low {len(lim_low)}, length of lim_high {len(lim_high)}")
 
-        print(f"phc.env.tass.humanoid.py._build_pd_action_offset_scale: iterate over num_joints {num_joints}")
+        print(f"ase.env.tass.humanoid.py._build_pd_action_offset_scale: iterate over num_joints {num_joints}")
         for j in range(num_joints):
             print(" ")
             dof_offset = self._dof_offsets[j]
             dof_size = self._dof_offsets[j + 1] - self._dof_offsets[j]
             if not self._bias_offset:
-                print(f"phc.env.tass.humanoid.py._build_pd_action_offset_scale: not self._bias_offset, dof_offset {dof_offset} dof_size {dof_size}")
+                print(f"ase.env.tass.humanoid.py._build_pd_action_offset_scale: not self._bias_offset, dof_offset {dof_offset} dof_size {dof_size}")
                 if (dof_size == 3):
-                    print(f"phc.env.tass.humanoid.py._build_pd_action_offset_scale: dof_size == 3")
+                    print(f"ase.env.tass.humanoid.py._build_pd_action_offset_scale: dof_size == 3")
                     curr_low = lim_low[dof_offset:(dof_offset + dof_size)]
                     curr_high = lim_high[dof_offset:(dof_offset + dof_size)]
                     curr_low = np.max(np.abs(curr_low))
@@ -569,7 +569,7 @@ class Humanoid(BaseTask):
                     
 
                 elif (dof_size == 1):
-                    print(f"phc.env.tass.humanoid.py._build_pd_action_offset_scale: dof_size == 1")
+                    print(f"ase.env.tass.humanoid.py._build_pd_action_offset_scale: dof_size == 1")
                     curr_low = lim_low[dof_offset]
                     curr_high = lim_high[dof_offset]
                     curr_mid = 0.5 * (curr_high + curr_low)
@@ -583,7 +583,7 @@ class Humanoid(BaseTask):
                     lim_low[dof_offset] = curr_low
                     lim_high[dof_offset] = curr_high
             else:
-                print(f"phc.env.tass.humanoid.py._build_pd_action_offset_scale: self._bias_offset, dof_offset {dof_offset} dof_size {dof_size}")
+                print(f"ase.env.tass.humanoid.py._build_pd_action_offset_scale: self._bias_offset, dof_offset {dof_offset} dof_size {dof_size}")
                 curr_low = lim_low[dof_offset:(dof_offset + dof_size)]
                 curr_high = lim_high[dof_offset:(dof_offset + dof_size)]
                 curr_mid = 0.5 * (curr_high + curr_low)
@@ -602,7 +602,7 @@ class Humanoid(BaseTask):
         self._pd_action_offset = to_torch(self._pd_action_offset, device=self.device)
         self._pd_action_scale = to_torch(self._pd_action_scale, device=self.device)
         
-        print(f"phc.env.tass.humanoid.py._build_pd_action_offset_scale: smpl in [smpl, smplh, smplx]")
+        print(f"ase.env.tass.humanoid.py._build_pd_action_offset_scale: smpl in [smpl, smplh, smplx]")
         self._L_knee_dof_idx = self._dof_names.index("L_Knee") * 3 + 1
         self._R_knee_dof_idx = self._dof_names.index("R_Knee") * 3 + 1
 
@@ -611,13 +611,13 @@ class Humanoid(BaseTask):
         self._pd_action_scale[self._R_knee_dof_idx] = 5
         
         if self._has_smpl_pd_offset:
-            print(f"phc.env.tass.humanoid.py._build_pd_action_offset_scale: self._has_smpl_pd_offset")
+            print(f"ase.env.tass.humanoid.py._build_pd_action_offset_scale: self._has_smpl_pd_offset")
             if self._has_upright_start:
-                print(f"phc.env.tass.humanoid.py._build_pd_action_offset_scale: self._has_upright_start")
+                print(f"ase.env.tass.humanoid.py._build_pd_action_offset_scale: self._has_upright_start")
                 self._pd_action_offset[self._dof_names.index("L_Shoulder") * 3] = -np.pi / 2
                 self._pd_action_offset[self._dof_names.index("R_Shoulder") * 3] = np.pi / 2
             else:
-                print(f"phc.env.tass.humanoid.py._build_pd_action_offset_scale: not self._has_upright_start")
+                print(f"ase.env.tass.humanoid.py._build_pd_action_offset_scale: not self._has_upright_start")
                 self._pd_action_offset[self._dof_names.index("L_Shoulder") * 3] = -np.pi / 6
                 self._pd_action_offset[self._dof_names.index("L_Shoulder") * 3 + 2] = -np.pi / 2
                 self._pd_action_offset[self._dof_names.index("R_Shoulder") * 3] = -np.pi / 3
