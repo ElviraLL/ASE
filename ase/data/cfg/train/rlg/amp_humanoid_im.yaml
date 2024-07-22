@@ -85,7 +85,7 @@ params:
     disc_reward_scale: 2
     disc_weight_decay: 0.0001
     normalize_amp_input: True
-    enable_eps_greedy: False
+    enable_eps_greedy: True
 
     task_reward_w: 0.0
     disc_reward_w: 1.0

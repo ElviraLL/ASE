@@ -28,7 +28,7 @@ def rewrite_pkl(pkl_path, root_dir):
         print(key)
         clip = data[key]
         joblib.dump(clip, f"{root_dir}/{key}.pkl")
-        break
+        
 
 
 def create_SekeltonMotion_from_dict(motion_dict: OrderedDict, skeleton_tree: SkeletonTree, *args, **kwargs):
@@ -84,8 +84,9 @@ if __name__ == "__main__":
 
     npy_folder = Path("/home/jing/Documents/projs/amass/npys")
     for pkl_path in tqdm(os.listdir(pkl_folder), total=len(os.listdir(pkl_folder))):
-        pkl_to_npy(f"{pkl_folder}/{pkl_path}", npy_folder)
-        print(f"Finish converting {pkl_path} to .npy file.")
+        if "ACCAD" in pkl_path and "Female1Walking" in pkl_path:
+            pkl_to_npy(f"{pkl_folder}/{pkl_path}", npy_folder)
+            print(f"Finish converting {pkl_path} to .npy file.")
     
     
     

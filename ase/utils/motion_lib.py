@@ -91,14 +91,16 @@ class DeviceCache:
 
 class MotionLib():
     def __init__(self, motion_file, dof_body_ids, dof_offsets,
-                 key_body_ids, device):
+                 key_body_ids, device, skeleton_ids=None):
+        
+        self.skeleton_ids = skeleton_ids # idx of the joints used in the simulation in the list of joints in motion file.
         self._dof_body_ids = dof_body_ids
         self._dof_offsets = dof_offsets
         self._num_dof = dof_offsets[-1]
         self._key_body_ids = torch.tensor(key_body_ids, device=device)
         self._device = device
         self._load_motions(motion_file)
-
+        
         motions = self._motions
         self.gts = torch.cat([m.global_translation for m in motions], dim=0).float()
         self.grs = torch.cat([m.global_rotation for m in motions], dim=0).float()
@@ -106,6 +108,9 @@ class MotionLib():
         self.grvs = torch.cat([m.global_root_velocity for m in motions], dim=0).float()
         self.gravs = torch.cat([m.global_root_angular_velocity for m in motions], dim=0).float()
         self.dvs = torch.cat([m.dof_vels for m in motions], dim=0).float()
+
+        self.gvs = torch.cat([m.global_velocity for m in motions], dim=0).float()
+        self.gavs = torch.cat([m.global_angular_velocity for m in motions], dim=0).float()
 
         lengths = self._motion_num_frames
         lengths_shifted = lengths.roll(1)
@@ -115,6 +120,18 @@ class MotionLib():
         self.motion_ids = torch.arange(len(self._motions), dtype=torch.long, device=self._device)
 
         return
+    
+    def _select_joints(self, m):
+        skeleton_ids = self.skeleton_ids
+        m.global_translation = m.global_translation[:, skeleton_ids]
+        m.global_rotation = m.global_rotation[:, skeleton_ids]
+        m.global_angular_velocity = m.global_angular_velocity[:, skeleton_ids]
+        m.global_velocity = m.global_velocity[:, skeleton_ids]
+        m.local_rotation = m.local_rotation[:, skeleton_ids]
+        m.local_translation = m.local_translation[:, skeleton_ids]
+        m.local_transformation = m.local_transformation[:, skeleton_ids]            
+        return m
+    
 
     def num_motions(self):
         return len(self._motions)
@@ -134,6 +151,7 @@ class MotionLib():
         return motion_ids
 
     def sample_time(self, motion_ids, truncate_time=None):
+        # sample random time in the motion (in seconds) TODO: Jingwen is this just for beginning of the motion in reset?
         n = len(motion_ids)
         phase = torch.rand(motion_ids.shape, device=self._device)
         
@@ -157,7 +175,7 @@ class MotionLib():
         num_frames = self._motion_num_frames[motion_ids]
         dt = self._motion_dt[motion_ids]
 
-        frame_idx0, frame_idx1, blend = self._calc_frame_blend(motion_times, motion_len, num_frames, dt)
+        frame_idx0, frame_idx1, blend = self._calc_frame_blend(motion_times, motion_len, num_frames, dt) 
 
         f0l = frame_idx0 + self.length_starts[motion_ids]
         f1l = frame_idx1 + self.length_starts[motion_ids]
@@ -199,6 +217,40 @@ class MotionLib():
 
         return root_pos, root_rot, dof_pos, root_vel, root_ang_vel, dof_vel, key_pos
     
+    def get_motion_state_max(self, motion_ids, motion_times):
+        n = len(motion_ids)
+        num_bodies = self._get_num_bodies()
+        num_key_bodies = self._key_body_ids.shape[0]
+
+        motion_len = self._motion_lengths[motion_ids]
+        num_frames = self._motion_num_frames[motion_ids]
+        dt = self._motion_dt[motion_ids]
+
+        frame_idx0, frame_idx1, blend = self._calc_frame_blend(motion_times, motion_len, num_frames, dt)
+
+        f0l = frame_idx0 + self.length_starts[motion_ids]
+        f1l = frame_idx1 + self.length_starts[motion_ids]
+
+        body_pos0 = self.gts[f0l]
+        body_pos1 = self.gts[f1l]
+        body_rot0 = self.grs[f0l]
+        body_rot1 = self.grs[f1l]
+        body_vel = self.gvs[f0l]
+        body_ang_vel = self.gavs[f0l]
+
+        vals = [body_pos0, body_pos1, body_rot0, body_rot1, body_vel, body_ang_vel]
+        for v in vals:
+            assert v.dtype != torch.float64
+
+        blend = blend.unsqueeze(-1)
+        blend_exp = blend.unsqueeze(-1)
+
+        # linear interpolation in maximal coordinate may not give the right values, see https://github.com/nv-tlabs/ASE/pull/53
+        body_pos = (1.0 - blend_exp) * body_pos0 + blend_exp * body_pos1
+        body_rot = torch_utils.slerp(body_rot0, body_rot1, blend_exp)
+
+        return body_pos, body_rot, body_vel, body_ang_vel
+    
     def _load_motions(self, motion_file):
         self._motions = []
         self._motion_lengths = []
@@ -215,7 +267,9 @@ class MotionLib():
         for f in range(num_motion_files):
             curr_file = motion_files[f]
             print("Loading {:d}/{:d} motion files: {:s}".format(f + 1, num_motion_files, curr_file))
-            curr_motion = SkeletonMotion.from_file(curr_file)
+            
+            # TODO Need to select joints in this function
+            curr_motion = SkeletonMotion.from_file(curr_file, skeleton_ids=self.skeleton_ids)
 
             motion_fps = curr_motion.fps
             curr_dt = 1.0 / motion_fps
@@ -294,12 +348,17 @@ class MotionLib():
         return motion_files, motion_weights
 
     def _calc_frame_blend(self, time, len, num_frames, dt):
+        """
+        time is a time that we want to smple the motion at, frame_idx 0 is the closest frame before "time" and frame_idx 1 is either
+        the next frame of the last frame (to make sure it is within the range of the motion).
+        Blend is the relative position of time in between frame_idx0 and frame_idx1 during dt.
+        """
 
         phase = time / len
         phase = torch.clip(phase, 0.0, 1.0)
 
         frame_idx0 = (phase * (num_frames - 1)).long()
-        frame_idx1 = torch.min(frame_idx0 + 1, num_frames - 1)
+        frame_idx1 = torch.min(frame_idx0 + 1, num_frames - 1) # next frame or the last frame
         blend = (time - frame_idx0 * dt) / dt
 
         return frame_idx0, frame_idx1, blend

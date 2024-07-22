@@ -140,7 +140,7 @@ class CommonAgent(a2c_continuous.A2CAgent):
         if self.multi_gpu:
             self.hvd.setup_algo(self)
 
-        self._init_train()
+        self._init_train() # AMPAgent._init_amp_demo_buf() update self._amp_obs_demo_buffer (reply buffer) dictionary, 'amp_obs' torch.Size([200000, 1690])
 
         while True:
             epoch_num = self.update_epoch()
@@ -160,7 +160,7 @@ class CommonAgent(a2c_continuous.A2CAgent):
                 if self.print_stats:
                     fps_step = curr_frames / scaled_play_time
                     fps_total = curr_frames / scaled_time
-                    print(f'fps step: {fps_step:.1f} fps total: {fps_total:.1f}')
+                    print(f'epoch_num: {epoch_num}, fps step: {fps_step:.1f} fps total: {fps_total:.1f}')
 
                 self.writer.add_scalar('performance/total_fps', curr_frames / scaled_time, frame)
                 self.writer.add_scalar('performance/step_fps', curr_frames / scaled_play_time, frame)

@@ -6,7 +6,7 @@ python ase/run.py --task HumanoidAMP --cfg_env ase/data/cfg/humanoid_sword_shiel
 
 ## visualization
 ```
-python ase/run.py --test --task HumanoidViewMotion --num_envs 2 --cfg_env ase/data/cfg/humanoid_sword_shield.yaml --cfg_train ase/data/cfg/train/rlg/amp_humanoid.yaml --motion_file /home/jing/Documents/projs/amass/npys/0-ACCAD-Female1Walking-c3d-B12-walkturnright-90--poses.npy
+python ase/run.py --test --task HumanoidViewMotion --num_envs 2 --cfg_env ase/data/cfg/humanoid_amp_smpl.yaml --cfg_train ase/data/cfg/train/rlg/amp_humanoid_im.yaml --motion_file /home/jing/Documents/projs/amass/npys/0-ACCAD-Female1Walking-c3d-B3-walk1-poses.npy
 ```
 
 # on amass branch
@@ -23,6 +23,12 @@ python ase/run.py --task HumanoidAMP --cfg_env ase/data/cfg/humanoid_amp_smpl.ya
 # run AMP testing
 ```
 python ase/run.py --test --task HumanoidAMP --num_envs 16 --cfg_env ase/data/cfg/humanoid_amp_smpl.yaml --cfg_train ase/data/cfg/train/rlg/amp_humanoid_im.yaml --motion_file /home/jing/Documents/projs/amass/npys/0-ACCAD-Female1Walking-c3d-B12-walkturnright-90--poses.npy --checkpoint .output/Humanoid_09-09-55-03/nn/Humanoid.pth
+```
+
+## Resume training
+```
+python ase/run.py --task HumanoidAMP --cfg_env ase/data/cfg/humanoid_amp_smpl.yaml --cfg_train ase/data/cfg/train/rlg/amp_humanoid_im.yaml --motion_file /home/jing/Documents/projs/amass/npys/0-ACCAD-Female1Walking-c3d-B12-walkturnright-90--poses.npy  --resume 1 --checkpoint ./output/Humanoid_
+
 ```
 
 # tensor board

@@ -67,13 +67,23 @@ class HumanoidAMP(Humanoid):
                          headless=headless)
 
         motion_file = cfg['env']['motion_file']
-        self._load_motion(motion_file)
+        self.skeleton_ids = cfg['env'].get('skeletonIDs', None) # this should actually in Humanoid.__init__
+        self._load_motion(motion_file, skeleton_ids=self.skeleton_ids)
 
         self._amp_obs_buf = torch.zeros((self.num_envs, self._num_amp_obs_steps, self._num_amp_obs_per_step), device=self.device, dtype=torch.float)
         self._curr_amp_obs_buf = self._amp_obs_buf[:, 0]
         self._hist_amp_obs_buf = self._amp_obs_buf[:, 1:]
         
         self._amp_obs_demo_buf = None
+
+        # AMP: tensors for enableTrackInitState
+        self._every_env_init_dof_pos = torch.zeros((self.num_envs, self.num_dof), device=self.device, dtype=torch.float)
+
+        # AMP: tensors for fixing obs bug
+        self._kinematic_humanoid_rigid_body_states = torch.zeros((self.num_envs, self.num_bodies, 13), device=self.device, dtype=torch.float)
+ 
+        # AMP adaptNet
+        self._policy_obs_offsets = [self._num_obs] # this variable is used for adaptNet
 
         return
 
@@ -147,8 +157,12 @@ class HumanoidAMP(Humanoid):
             self._num_amp_obs_per_step = 13 + self._dof_obs_size + 28 + 3 * num_key_bodies # [root_h, root_rot, root_vel, root_ang_vel, dof_pos, dof_vel, key_body_pos]
         elif (asset_file == "mjcf/amp_humanoid_sword_shield.xml"):
             self._num_amp_obs_per_step = 13 + self._dof_obs_size + 31 + 3 * num_key_bodies # [root_h, root_rot, root_vel, root_ang_vel, dof_pos, dof_vel, key_body_pos]
-        elif ("smpl" in asset_file):
-            self._num_amp_obs_per_step = 13 + self._dof_obs_size + len(self._dof_names) * 3 + 3 * num_key_bodies # TODO: Jingwen: difference here, in phc, there is 6 + 3
+        # elif ("smpl" in asset_file):
+        #     self._num_amp_obs_per_step = 13 + self._dof_obs_size + len(self._dof_names) * 3 + 3 * num_key_bodies # TODO: Jingwen: difference here, in phc, there is 6 + 3
+        elif (asset_file == "mjcf/smpl_humanoid.xml"):
+            self._num_amp_obs_per_step = 13 + self._dof_obs_size + 54 + 3 * num_key_bodies # [root_h, root_rot, root_vel, root_ang_vel, dof_pos, dof_vel, key_body_pos]
+        elif (asset_file == "mjcf/smpl_humanoid_v2.xml"):
+            self._num_amp_obs_per_step = 13 + self._dof_obs_size + 48 + 3 * num_key_bodies # [root_h, root_rot, root_vel, root_ang_vel, dof_pos, dof_vel, key_body_pos]
             # TODO: Jingwen: difference here, in phc, there is 
             # if self._has_dof_subset:
             #     print(f"ase.env.tasks.humanoid_amp.HumanoidAMP._setup_character_props: self._has_dof_subset")
@@ -164,14 +178,15 @@ class HumanoidAMP(Humanoid):
         #     print(f"ase.env.tasks.humanoid_amp.HumanoidAMP._setup_character_props:  self._enable_hist_obsis true, _num_self_obs is {self._num_self_obs}")
         return
 
-    def _load_motion(self, motion_file):
+    def _load_motion(self, motion_file, skeleton_ids=None):
         # TODO: A different load motion class
         assert(self._dof_offsets[-1] == self.num_dof)
         self._motion_lib = MotionLib(motion_file=motion_file,
                                      dof_body_ids=self._dof_body_ids,
                                      dof_offsets=self._dof_offsets,
                                      key_body_ids=self._key_body_ids.cpu().numpy(), 
-                                     device=self.device)
+                                     device=self.device,
+                                     skeleton_ids=skeleton_ids)
         return
     
     def _reset_envs(self, env_ids):
@@ -184,7 +199,7 @@ class HumanoidAMP(Humanoid):
         return
 
     def _reset_actors(self, env_ids):
-        print(f"ase.env.tasks.humanoid_amp.HumanoidAMP._reset_actors: resetting actors...")
+        # print(f"ase.env.tasks.humanoid_amp.HumanoidAMP._reset_actors: resetting actors...")
         if (self._state_init == HumanoidAMP.StateInit.Default):
             self._reset_default(env_ids)
         elif (self._state_init == HumanoidAMP.StateInit.Start
@@ -201,10 +216,14 @@ class HumanoidAMP(Humanoid):
         self._dof_pos[env_ids] = self._initial_dof_pos[env_ids]
         self._dof_vel[env_ids] = self._initial_dof_vel[env_ids]
         self._reset_default_env_ids = env_ids
+
+        if (len(self._reset_default_env_ids) > 0):
+            self._kinematic_humanoid_rigid_body_states[self._reset_default_env_ids] = self._initial_humanoid_rigid_body_states[self._reset_default_env_ids]
+
         return
 
     def _reset_ref_state_init(self, env_ids):
-        print(f"ase.env.tasks.humanoid_amp.HumanoidAMP._reset_ref_state_init: resetting reference state init...")
+        # print(f"ase.env.tasks.humanoid_amp.HumanoidAMP._reset_ref_state_init: resetting reference state init...")
         # TODO: Jingwen: difference here,
         num_envs = env_ids.shape[0]
         motion_ids = self._motion_lib.sample_motions(num_envs)
@@ -218,7 +237,7 @@ class HumanoidAMP(Humanoid):
             assert(False), "Unsupported state initialization strategy: {:s}".format(str(self._state_init))
 
         root_pos, root_rot, dof_pos, root_vel, root_ang_vel, dof_vel, key_pos \
-               = self._motion_lib.get_motion_state(motion_ids, motion_times)
+               = self._motion_lib.get_motion_state(motion_ids, motion_times) # this is just one  frame, no one has frame dim
 
         self._set_env_state(env_ids=env_ids, 
                             root_pos=root_pos, 
@@ -231,6 +250,15 @@ class HumanoidAMP(Humanoid):
         self._reset_ref_env_ids = env_ids
         self._reset_ref_motion_ids = motion_ids
         self._reset_ref_motion_times = motion_times
+
+        # update buffer for kinematic humanoid state
+        if (len(self._reset_ref_env_ids) > 0):
+            body_pos, body_rot, body_vel, body_ang_vel \
+                = self._motion_lib.get_motion_state_max(self._reset_ref_motion_ids, self._reset_ref_motion_times)
+            self._kinematic_humanoid_rigid_body_states[self._reset_ref_env_ids] = torch.cat((body_pos, body_rot, body_vel, body_ang_vel), dim=-1)
+        
+        self._every_env_init_dof_pos[self._reset_ref_env_ids] = dof_pos # for "enableTrackInitState"
+
         return
 
     def _reset_hybrid_state_init(self, env_ids):
@@ -283,7 +311,7 @@ class HumanoidAMP(Humanoid):
         self._hist_amp_obs_buf[env_ids] = amp_obs_demo.view(self._hist_amp_obs_buf[env_ids].shape)
         return
     
-    def _set_env_state(self, env_ids, root_pos, root_rot, dof_pos, root_vel, root_ang_vel, dof_vel):
+    def _set_env_state(self, env_ids, root_pos, root_rot, dof_pos, root_vel, root_ang_vel, dof_vel): # set humanoid_root_states, dof_pos, dof_vel (only as instance data)
         self._humanoid_root_states[env_ids, 0:3] = root_pos
         self._humanoid_root_states[env_ids, 3:7] = root_rot
         self._humanoid_root_states[env_ids, 7:10] = root_vel
@@ -303,23 +331,31 @@ class HumanoidAMP(Humanoid):
         return
     
     def _compute_amp_observations(self, env_ids=None):
-        key_body_pos = self._rigid_body_pos[:, self._key_body_ids, :]
+
+        # print("motion_label: ", self._every_env_motion_label[:4].nonzero()[:, 1])
+
         if (env_ids is None):
-            self._curr_amp_obs_buf[:] = build_amp_observations(self._rigid_body_pos[:, 0, :],
+            key_body_pos = self._rigid_body_pos[:, self._key_body_ids, :]
+            amp_obs = build_amp_observations(self._rigid_body_pos[:, 0, :],
                                                                self._rigid_body_rot[:, 0, :],
                                                                self._rigid_body_vel[:, 0, :],
                                                                self._rigid_body_ang_vel[:, 0, :],
                                                                self._dof_pos, self._dof_vel, key_body_pos,
                                                                self._local_root_obs, self._root_height_obs, 
                                                                self._dof_obs_size, self._dof_offsets)
+
         else:
-            self._curr_amp_obs_buf[env_ids] = build_amp_observations(self._rigid_body_pos[env_ids][:, 0, :],
-                                                                   self._rigid_body_rot[env_ids][:, 0, :],
-                                                                   self._rigid_body_vel[env_ids][:, 0, :],
-                                                                   self._rigid_body_ang_vel[env_ids][:, 0, :],
-                                                                   self._dof_pos[env_ids], self._dof_vel[env_ids], key_body_pos[env_ids],
-                                                                   self._local_root_obs, self._root_height_obs, 
-                                                                   self._dof_obs_size, self._dof_offsets)
+            kinematic_rigid_body_pos = self._kinematic_humanoid_rigid_body_states[:, :, 0:3]
+            key_body_pos = kinematic_rigid_body_pos[:, self._key_body_ids, :]
+            amp_obs = build_amp_observations(self._kinematic_humanoid_rigid_body_states[env_ids, 0, 0:3],
+                                            self._kinematic_humanoid_rigid_body_states[env_ids, 0, 3:7],
+                                            self._kinematic_humanoid_rigid_body_states[env_ids, 0, 7:10],
+                                            self._kinematic_humanoid_rigid_body_states[env_ids, 0, 10:13],
+                                            self._dof_pos[env_ids], self._dof_vel[env_ids], key_body_pos[env_ids],
+                                            self._local_root_obs, self._root_height_obs, 
+                                            self._dof_obs_size, self._dof_offsets)
+
+        self._curr_amp_obs_buf[env_ids] = amp_obs
         return
 
 

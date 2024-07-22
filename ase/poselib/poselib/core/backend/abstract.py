@@ -131,6 +131,41 @@ class Serializable:
         assert d["__name__"] == cls.__name__, "the file belongs to {}, not {}".format(
             d["__name__"], cls.__name__
         )
+
+        def update_skeleton_tree(skeleton_tree, selected_ids):
+            original_node_names = skeleton_tree["node_names"]
+            original_parent_indices = skeleton_tree["parent_indices"]["arr"]
+
+            old_to_new_index = {old_idx: new_idx for new_idx, old_idx in enumerate(selected_ids)}
+
+            new_node_names = [original_node_names[idx] for idx in selected_ids]
+            new_parent_indices = []
+            def find_valid_parent(idx):
+                original_parent_idx = original_parent_indices[idx]
+                # Check if the parent is in the selected skeleton_ids
+                while original_parent_idx not in skeleton_ids and original_parent_idx != -1:
+                    original_parent_idx = original_parent_indices[original_parent_idx]
+                # Return the new index if valid parent found, else -1
+                return old_to_new_index.get(original_parent_idx, -1)
+            
+            for idx in skeleton_ids:
+                new_parent_idx = find_valid_parent(idx)
+                new_parent_indices.append(new_parent_idx)
+
+            updated_skelton_tree = OrderedDict()
+            updated_skelton_tree["node_names"] = new_node_names
+            updated_skelton_tree["parent_indices"] = {"arr": np.array(new_parent_indices), 'context': {'dtype': 'int64'}}
+            updated_skelton_tree['local_translation'] = {'arr': skeleton_tree['local_translation']['arr'][selected_ids], 'context': {'dtype': 'float32'}}
+            return updated_skelton_tree
+
+
+        skeleton_ids = kwargs.get("skeleton_ids", None)
+        if skeleton_ids is not None:
+            d['rotation']['arr'] = d['rotation']['arr'][:, skeleton_ids]
+            d['global_velocity']['arr'] = d['global_velocity']['arr'][:, skeleton_ids]
+            d['global_angular_velocity']['arr'] = d['global_angular_velocity']['arr'][:, skeleton_ids]
+            d['skeleton_tree'] = update_skeleton_tree(d['skeleton_tree'], skeleton_ids)
+
         return cls.from_dict(d, *args, **kwargs)
 
     def to_file(self, path: str) -> None:

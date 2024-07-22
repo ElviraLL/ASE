@@ -1,6 +1,6 @@
 # if given, will override the device setting in gym. 
 env: 
-  numEnvs: 3072
+  numEnvs: 4096
   envSpacing: 5
   episodeLength: 300
   isFlagrun: False
@@ -15,13 +15,14 @@ env:
 
   localRootObs: False
   keyBodies: ["R_Ankle", "L_Ankle", "R_Wrist",  "L_Wrist"]
-  contactBodies: ["R_Ankle", "L_Ankle", "R_Toe", "L_Toe"]
+  contactBodies: ["R_Ankle", "L_Ankle"]
+  skeletonIDs: [0, 1, 2, 3, 5, 6, 7, 9, 10, 11, 12, 14, 15, 16, 17, 19, 20, 21, 22]
   terminationHeight: 0.15
   enableEarlyTermination: True
 
   asset:
     assetRoot: "ase/data/assets"
-    assetFileName: "mjcf/smpl_humanoid.xml"
+    assetFileName: "mjcf/smpl_humanoid_v2.xml"
 
   plane:
     staticFriction: 1.0
@@ -44,3 +45,23 @@ sim:
   flex:
     num_inner_iterations: 10
     warm_start: 0.25
+
+
+# skeletonIDs is the idx of the skeletones used in the environment (scne, render)
+# [
+#     'Pelvis', 
+#     'L_Hip', 'L_Knee', 'L_Ankle',
+#     'R_Hip', 'R_Knee', 'R_Ankle',
+#     'Torso', 'Spine', 'Chest', 'Neck',
+#     'L_Thorax', 'L_Shoulder', 'L_Elbow', 'L_Wrist',
+#     'R_Thorax', 'R_Shoulder', 'R_Elbow', 'R_Wrist',
+# ] 
+# out of the original 24 bones in the SMPL dataset
+# [
+#     'Pelvis',                                                         # 0
+#     'L_Hip', 'L_Knee', 'L_Ankle', 'L_Toe',                            # 1, 2, 3, 4                        
+#     'R_Hip', 'R_Knee', 'R_Ankle', 'R_Toe',                            # 5, 6, 7, 8
+#     'Torso', 'Spine', 'Chest', 'Neck', 'Head',                        # 9, 10, 11, 12, 13
+#     'L_Thorax', 'L_Shoulder', 'L_Elbow', 'L_Wrist', 'L_Hand',         # 14, 15, 16, 17, 18
+#     'R_Thorax', 'R_Shoulder', 'R_Elbow', 'R_Wrist', 'R_Hand',         # 19, 20, 21, 22, 23          
+# ]

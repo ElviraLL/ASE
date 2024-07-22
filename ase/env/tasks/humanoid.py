@@ -44,18 +44,14 @@ from env.tasks.base_task import BaseTask
 class Humanoid(BaseTask):
     def __init__(self, cfg, sim_params, physics_engine, device_type, device_id, headless):
         # for smpl
-        self._body_names = smpl_utils.SMPL_MUJOCO_NAMES
-        self._dof_names = self._body_names[1:]
+        # self._body_names = smpl_utils.SMPL_MUJOCO_NAMES
+        # self._dof_names = self._body_names[1:]
 
         self.cfg = cfg
         self.sim_params = sim_params
         self.physics_engine = physics_engine
 
         self._pd_control = self.cfg["env"]["pdControl"]
-        if self._pd_control:
-            self.control_mode = "pd"
-        else:
-            self.control_mode = None
         self.power_scale = self.cfg["env"]["powerScale"]
 
         self.debug_viz = self.cfg["env"]["enableDebugVis"]
@@ -87,7 +83,7 @@ class Humanoid(BaseTask):
         dof_state_tensor = self.gym.acquire_dof_state_tensor(self.sim)
         sensor_tensor = self.gym.acquire_force_sensor_tensor(self.sim)
 
-        print(f"sensor_tensor: {sensor_tensor.shape}")
+        # print(f"sensor_tensor: {sensor_tensor.shape}")
         rigid_body_state = self.gym.acquire_rigid_body_state_tensor(self.sim)
         contact_force_tensor = self.gym.acquire_net_contact_force_tensor(self.sim)
 
@@ -125,10 +121,13 @@ class Humanoid(BaseTask):
         bodies_per_env = self._rigid_body_state.shape[0] // self.num_envs
         rigid_body_state_reshaped = self._rigid_body_state.view(self.num_envs, bodies_per_env, 13)
 
-        self._rigid_body_pos = rigid_body_state_reshaped[..., :self.num_bodies, 0:3]
-        self._rigid_body_rot = rigid_body_state_reshaped[..., :self.num_bodies, 3:7]
-        self._rigid_body_vel = rigid_body_state_reshaped[..., :self.num_bodies, 7:10]
-        self._rigid_body_ang_vel = rigid_body_state_reshaped[..., :self.num_bodies, 10:13]
+        self._initial_humanoid_rigid_body_states = rigid_body_state_reshaped[..., :self.num_bodies, :].clone()
+        self._initial_humanoid_rigid_body_states[..., 7:13] = 0
+
+        self._rigid_body_pos = rigid_body_state_reshaped[..., :self.num_bodies, 0:3] # 0, 1, 2
+        self._rigid_body_rot = rigid_body_state_reshaped[..., :self.num_bodies, 3:7] # 3, 4, 5, 6, quaternion
+        self._rigid_body_vel = rigid_body_state_reshaped[..., :self.num_bodies, 7:10] # velocity
+        self._rigid_body_ang_vel = rigid_body_state_reshaped[..., :self.num_bodies, 10:13] # angular velocity
 
         contact_force_tensor = gymtorch.wrap_tensor(contact_force_tensor)
         self._contact_forces = contact_force_tensor.view(self.num_envs, bodies_per_env, 3)[..., :self.num_bodies, :]
@@ -184,10 +183,10 @@ class Humanoid(BaseTask):
 
     def _reset_envs(self, env_ids):
         if (len(env_ids) > 0):
-            self._reset_actors(env_ids)
-            self._reset_env_tensors(env_ids)
-            self._refresh_sim_tensors()
-            self._compute_observations(env_ids)
+            self._reset_actors(env_ids) # sample motion, sample time, load motion at sampled time, assign to instance variables in self
+            self._reset_env_tensors(env_ids) # gym set actor root state, set dof state 
+            self._refresh_sim_tensors() # refresh sim tensors
+            self._compute_observations(env_ids) # compute humanoid observation
         return
 
     def _reset_env_tensors(self, env_ids):
@@ -245,18 +244,38 @@ class Humanoid(BaseTask):
             self._num_actions = 31
             self._num_obs = 1 + 17 * (3 + 6 + 3 + 3) - 3
         
-        elif ("smpl" in asset_file):
+        elif (asset_file == "mjcf/smpl_humanoid.xml"):
             self._dof_body_ids = np.arange(1, len(self._body_names))
-            #print(f"ase.env.tasks.humanoid.Humanoid._setup_character_props: self._dof_body_ids {self._dof_body_ids}")
             self._dof_offsets = np.linspace(0, len(self._dof_names) * 3, len(self._body_names)).astype(int) # each joint has 3 dof 
-            #print(f"ase.env.tasks.humanoid.Humanoid._setup_character_props: self._dof_offsets {self._dof_offsets}")
             self._dof_obs_size = len(self._dof_names) * 6
-            #print(f"ase.env.tasks.humanoid.Humanoid._setup_character_props: self._dof_obs_size {self._dof_obs_size}")
             self._num_actions = len(self._dof_names) * 3
-            #print(f"ase.env.tasks.humanoid.Humanoid._setup_character_props: self._num_actions {self._num_actions}")
             self._num_obs = 1 + len(self._body_names) * (3 + 6 + 3 + 3) - 3  # height + num_bodies * 15 (pos + vel + rot + ang_vel) - root_pos
-            #print(f"ase.env.tasks.humanoid.Humanoid._setup_character_props: self._num_obs {self._num_obs}")
+            
+            print(f"ase.env.tasks.humanoid.Humanoid._setup_character_props: self._dof_body_ids {self._dof_body_ids}")
+            print(f"ase.env.tasks.humanoid.Humanoid._setup_character_props: self._dof_offsets {self._dof_offsets}")
+            print(f"ase.env.tasks.humanoid.Humanoid._setup_character_props: self._dof_obs_size {self._dof_obs_size}")
+            print(f"ase.env.tasks.humanoid.Humanoid._setup_character_props: self._num_actions {self._num_actions}")
+            print(f"ase.env.tasks.humanoid.Humanoid._setup_character_props: self._num_obs {self._num_obs}")
             # TODO: Jingwen, difference: check if there are REDUCED actions, check if ENABLE_MAX_COORD_OBS there is also self._num_self_obs
+        elif (asset_file == "mjcf/smpl_humanoid_v2.xml"):
+            self._body_names = [
+                'Pelvis',
+                'L_Hip', 'L_Knee', 'L_Ankle',
+                'R_Hip', 'R_Knee', 'R_Ankle',
+                'Torso', 'Spine', 'Chest', 'Neck',
+                'L_Thorax', 'L_Shoulder', 'L_Elbow', 'L_Wrist',
+                'R_Thorax', 'R_Shoulder', 'R_Elbow', 'R_Wrist',
+            ]
+            
+            self._dof_body_ids = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 15, 16, 17] # len=16
+            self._dof_offsets = np.linspace(0, len(self._dof_body_ids) * 3, len(self._dof_body_ids) + 1).astype(int)
+            self._dof_obs_size = len(self._dof_body_ids) * 6
+            self._num_actions = len(self._dof_body_ids) * 3
+            self._num_obs = 1 + len(self._body_names) * (3 + 6 + 3 + 3) - 3
+
+            self._body_head_name = "Neck"
+            self._body_left_foot_name = "L_Ankle"
+            self._body_right_foot_name = "R_Ankle"
         else:
             print("Unsupported character config file: {s}".format(asset_file))
             assert(False)
@@ -265,19 +284,13 @@ class Humanoid(BaseTask):
 
     def _build_termination_heights(self):
         head_term_height = 0.3
-        shield_term_height = 0.32
 
         termination_height = self.cfg["env"]["terminationHeight"]
         self._termination_heights = np.array([termination_height] * self.num_bodies)
 
-        head_id = self.gym.find_actor_rigid_body_handle(self.envs[0], self.humanoid_handles[0], "head")
+        head_id = self.gym.find_actor_rigid_body_handle(self.envs[0], self.humanoid_handles[0], self._body_head_name)
         self._termination_heights[head_id] = max(head_term_height, self._termination_heights[head_id])
-
-        asset_file = self.cfg["env"]["asset"]["assetFileName"]
-        if (asset_file == "mjcf/amp_humanoid_sword_shield.xml"):
-            left_arm_id = self.gym.find_actor_rigid_body_handle(self.envs[0], self.humanoid_handles[0], "left_lower_arm")
-            self._termination_heights[left_arm_id] = max(shield_term_height, self._termination_heights[left_arm_id])
-        # TODO: Jingwen Do we need to put a termination height for smpl specific?
+        
         self._termination_heights = to_torch(self._termination_heights, device=self.device)
         return
 
@@ -302,20 +315,15 @@ class Humanoid(BaseTask):
         actuator_props = self.gym.get_asset_actuator_properties(humanoid_asset)
         motor_efforts = [prop.motor_effort for prop in actuator_props]
         
-        # # create force sensors at the feet
-        # # right_toe_idx = self.gym.find_asset_rigid_body_index(humanoid_asset, "R_Toe")
-        # # left_toe_idx = self.gym.find_asset_rigid_body_index(humanoid_asset, "L_Toe")
-        # right_ankle_idx = self.gym.find_asset_rigid_body_index(humanoid_asset, "R_Ankle")
-        # left_ankle_idx = self.gym.find_asset_rigid_body_index(humanoid_asset, "L_Ankle")
-        # sensor_pose = gymapi.Transform()
-
-        # # self.gym.create_asset_force_sensor(humanoid_asset, right_toe_idx, sensor_pose)
-        # # self.gym.create_asset_force_sensor(humanoid_asset, left_toe_idx, sensor_pose)
-        # self.gym.create_asset_force_sensor(humanoid_asset, right_ankle_idx, sensor_pose)
-        # self.gym.create_asset_force_sensor(humanoid_asset, left_ankle_idx, sensor_pose)
+        # create force sensors at the feet
+        right_foot_idx = self.gym.find_asset_rigid_body_index(humanoid_asset, self._body_right_foot_name) # left_Ankle
+        left_foot_idx = self.gym.find_asset_rigid_body_index(humanoid_asset, self._body_left_foot_name) # right_Ankle
+        sensor_pose = gymapi.Transform()
+        self.gym.create_asset_force_sensor(humanoid_asset, right_foot_idx, sensor_pose)
+        self.gym.create_asset_force_sensor(humanoid_asset, left_foot_idx, sensor_pose)
 
         # TODO: Jingwen, use PHD's function to create humanoid force sensors, joint is copied from PHD too
-        self.create_humanoid_force_sensors(humanoid_asset, ["L_Ankle", "R_Ankle"]) 
+        # self.create_humanoid_force_sensors(humanoid_asset, ["L_Ankle", "R_Ankle"]) 
 
 
         self.max_motor_effort = max(motor_efforts)
@@ -353,27 +361,26 @@ class Humanoid(BaseTask):
         self.dof_limits_lower = to_torch(self.dof_limits_lower, device=self.device)
         self.dof_limits_upper = to_torch(self.dof_limits_upper, device=self.device)
 
-        if self.control_mode == "pd":
-            self.torque_limits = torch.ones_like(self.dof_limits_upper) * 1000 # ZL: hacking 
+        # if self.control_mode == "pd":
+        #     self.torque_limits = torch.ones_like(self.dof_limits_upper) * 1000 # ZL: hacking 
 
-        if self.control_mode in ["pd", "isaac_pd"]:
+        if self._pd_control:
             self._build_pd_action_offset_scale()
         return
     
 
-    def create_humanoid_force_sensors(self, humanoid_asset, sensor_joint_names):
-        # TODO: Jingwen Add this function from PHC to create force sensors
-        for jt in sensor_joint_names:
-            right_foot_idx = self.gym.find_asset_rigid_body_index(humanoid_asset, jt)
-            sensor_pose = gymapi.Transform()
-            sensor_options = gymapi.ForceSensorProperties()
-            sensor_options.enable_constraint_solver_forces = True # for example contacts 
-            sensor_options.use_world_frame = False # Local frame so we can directly send it to computation. 
-            # These are the default values. 
+    # def create_humanoid_force_sensors(self, humanoid_asset, sensor_joint_names):
+    #     # TODO: Jingwen Add this function from PHC to create force sensors
+    #     for jt in sensor_joint_names:
+    #         right_foot_idx = self.gym.find_asset_rigid_body_index(humanoid_asset, jt)
+    #         sensor_pose = gymapi.Transform()
+    #         sensor_options = gymapi.ForceSensorProperties()
+    #         sensor_options.enable_constraint_solver_forces = True # for example contacts 
+    #         sensor_options.use_world_frame = False # Local frame so we can directly send it to computation. 
+    #         # These are the default values. 
             
-            self.gym.create_asset_force_sensor(humanoid_asset, right_foot_idx, sensor_pose, sensor_options)
-            
-        return
+    #         self.gym.create_asset_force_sensor(humanoid_asset, right_foot_idx, sensor_pose, sensor_options)
+    #     return
     
     def _build_env(self, env_id, env_ptr, humanoid_asset):
         # TODO: Jingwen, use PHD's function to build humanoid, they have humanoid_masses and humanoid_limb_and_weights
@@ -658,18 +665,23 @@ class Humanoid(BaseTask):
 
         return
 
-    def _compute_humanoid_obs(self, env_ids=None):
+    def _compute_humanoid_obs(self, env_ids=None): 
+        """
+        Compute the humanoid_observation
+        if env_ids is None, (no reset) so use the rigid_body states from the simulators
+        else, for those env_ids, we should use the kinematic_humanoid_rigid_body_states that fetched from the reference motion clip
+        """
         if (env_ids is None):
             body_pos = self._rigid_body_pos
             body_rot = self._rigid_body_rot
             body_vel = self._rigid_body_vel
             body_ang_vel = self._rigid_body_ang_vel
         else:
-            body_pos = self._rigid_body_pos[env_ids]
-            body_rot = self._rigid_body_rot[env_ids]
-            body_vel = self._rigid_body_vel[env_ids]
-            body_ang_vel = self._rigid_body_ang_vel[env_ids]
-        
+            body_pos = self._kinematic_humanoid_rigid_body_states[env_ids, :, 0:3]
+            body_rot = self._kinematic_humanoid_rigid_body_states[env_ids, :, 3:7]
+            body_vel = self._kinematic_humanoid_rigid_body_states[env_ids, :, 7:10]
+            body_ang_vel = self._kinematic_humanoid_rigid_body_states[env_ids, :, 10:13]
+
         obs = compute_humanoid_observations_max(body_pos, body_rot, body_vel, body_ang_vel, self._local_root_obs,
                                                 self._root_height_obs)
         return obs
