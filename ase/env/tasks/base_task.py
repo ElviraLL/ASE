@@ -140,7 +140,7 @@ class BaseTask():
             self.gym.fetch_results(self.sim, True)
 
         # compute observations, rewards, resets, ...
-        self.post_physics_step()
+        self.post_physics_step() # update observation, update amp observation for all envs, compute reward, compute resets(test which needs reset)
 
         if self.dr_randomizations.get('observations', None):
             self.obs_buf = self.dr_randomizations['observations']['noise_lambda'](self.obs_buf)

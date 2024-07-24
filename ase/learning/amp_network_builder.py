@@ -59,7 +59,7 @@ class AMPBuilder(network_builder.A2CBuilder):
 
         def load(self, params):
             super().load(params)
-
+            self.activations_factory.register_builder('SiLU', lambda **kwargs : SiLU(**kwargs))
             self._disc_units = params['disc']['units']
             self._disc_activation = params['disc']['activation']
             self._disc_initializer = params['disc']['initializer']
@@ -152,3 +152,13 @@ class AMPBuilder(network_builder.A2CBuilder):
     def build(self, name, **kwargs):
         net = AMPBuilder.Network(self.params, **kwargs)
         return net
+    
+    
+# replace ReLU with SiLU
+class SiLU(torch.nn.Module):
+    def __init__(self, *args, **kwargs):
+        super().__init__( *args, **kwargs)
+        self.sigmoid = torch.nn.Sigmoid()
+
+    def forward(self, x):
+        return x * self.sigmoid(x)

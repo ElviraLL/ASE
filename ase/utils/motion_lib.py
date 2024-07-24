@@ -91,16 +91,15 @@ class DeviceCache:
 
 class MotionLib():
     def __init__(self, motion_file, dof_body_ids, dof_offsets,
-                 key_body_ids, device, skeleton_ids=None):
-        
-        self.skeleton_ids = skeleton_ids # idx of the joints used in the simulation in the list of joints in motion file.
+                 key_body_ids, device, skill=None, skeleton_ids=None):
+        self.skeleton_ids = skeleton_ids
         self._dof_body_ids = dof_body_ids
         self._dof_offsets = dof_offsets
         self._num_dof = dof_offsets[-1]
         self._key_body_ids = torch.tensor(key_body_ids, device=device)
         self._device = device
-        self._load_motions(motion_file)
-        
+        self._load_motions(motion_file, skill)
+
         motions = self._motions
         self.gts = torch.cat([m.global_translation for m in motions], dim=0).float()
         self.grs = torch.cat([m.global_rotation for m in motions], dim=0).float()
@@ -120,18 +119,6 @@ class MotionLib():
         self.motion_ids = torch.arange(len(self._motions), dtype=torch.long, device=self._device)
 
         return
-    
-    def _select_joints(self, m):
-        skeleton_ids = self.skeleton_ids
-        m.global_translation = m.global_translation[:, skeleton_ids]
-        m.global_rotation = m.global_rotation[:, skeleton_ids]
-        m.global_angular_velocity = m.global_angular_velocity[:, skeleton_ids]
-        m.global_velocity = m.global_velocity[:, skeleton_ids]
-        m.local_rotation = m.local_rotation[:, skeleton_ids]
-        m.local_translation = m.local_translation[:, skeleton_ids]
-        m.local_transformation = m.local_transformation[:, skeleton_ids]            
-        return m
-    
 
     def num_motions(self):
         return len(self._motions)
@@ -144,24 +131,53 @@ class MotionLib():
 
     def sample_motions(self, n):
         motion_ids = torch.multinomial(self._motion_weights, num_samples=n, replacement=True)
-
-        # m = self.num_motions()
-        # motion_ids = np.random.choice(m, size=n, replace=True, p=self._motion_weights)
-        # motion_ids = torch.tensor(motion_ids, device=self._device, dtype=torch.long)
         return motion_ids
 
     def sample_time(self, motion_ids, truncate_time=None):
-        # sample random time in the motion (in seconds) TODO: Jingwen is this just for beginning of the motion in reset?
         n = len(motion_ids)
         phase = torch.rand(motion_ids.shape, device=self._device)
         
         motion_len = self._motion_lengths[motion_ids]
         if (truncate_time is not None):
-            assert(truncate_time >= 0.0)
+            assert (truncate_time >= 0.0)
             motion_len -= truncate_time
 
         motion_time = phase * motion_len
         return motion_time
+
+    def sample_time_rsi(self, motion_ids, truncate_time=None):
+        # this function is designed for reference state init
+        # it gives motion times sampled in allowed range
+        n = len(motion_ids)
+        succ_sample_times = torch.zeros(n, dtype=torch.float32, device=self._device)
+        succ_sample_record = torch.zeros(n, dtype=torch.bool, device=self._device)
+        while torch.sum(succ_sample_record) < n:
+            # print(torch.sum(succ_sample_record))
+            mask = (succ_sample_record == False)
+
+            phase = torch.rand(motion_ids[mask].shape, device=self._device)
+            
+            motion_len = self._motion_lengths[motion_ids[mask]]
+            if (truncate_time is not None):
+                assert (truncate_time >= 0.0)
+                motion_len -= truncate_time
+
+            motion_time = phase * motion_len
+
+            # check if it is within the skipped range
+            skipped_range = self._motion_rsi_skipped_ranges[motion_ids[mask]]
+
+            curr_num_samples = motion_time.shape[0]
+            curr_succ = torch.where(
+                torch.logical_and(motion_time >= skipped_range[:, 0], motion_time <= skipped_range[:, 1]),
+                torch.zeros(curr_num_samples, dtype=torch.bool, device=self._device), # input, 
+                torch.ones(curr_num_samples, dtype=torch.bool, device=self._device), # other
+            )
+            curr_succ_inds = torch.nonzero(mask)[curr_succ, 0]
+            succ_sample_times[curr_succ_inds] = motion_time[curr_succ]
+            succ_sample_record[curr_succ_inds] = True
+
+        return succ_sample_times
 
     def get_motion_length(self, motion_ids):
         return self._motion_lengths[motion_ids]
@@ -175,7 +191,7 @@ class MotionLib():
         num_frames = self._motion_num_frames[motion_ids]
         dt = self._motion_dt[motion_ids]
 
-        frame_idx0, frame_idx1, blend = self._calc_frame_blend(motion_times, motion_len, num_frames, dt) 
+        frame_idx0, frame_idx1, blend = self._calc_frame_blend(motion_times, motion_len, num_frames, dt)
 
         f0l = frame_idx0 + self.length_starts[motion_ids]
         f1l = frame_idx1 + self.length_starts[motion_ids]
@@ -209,6 +225,7 @@ class MotionLib():
 
         root_rot = torch_utils.slerp(root_rot0, root_rot1, blend)
 
+        # linear interpolation in maximal coordinate may not give the right values, see https://github.com/nv-tlabs/ASE/pull/53
         blend_exp = blend.unsqueeze(-1)
         key_pos = (1.0 - blend_exp) * key_pos0 + blend_exp * key_pos1
         
@@ -250,8 +267,8 @@ class MotionLib():
         body_rot = torch_utils.slerp(body_rot0, body_rot1, blend_exp)
 
         return body_pos, body_rot, body_vel, body_ang_vel
-    
-    def _load_motions(self, motion_file):
+
+    def _load_motions(self, motion_file, skill=None):
         self._motions = []
         self._motion_lengths = []
         self._motion_weights = []
@@ -259,16 +276,16 @@ class MotionLib():
         self._motion_dt = []
         self._motion_num_frames = []
         self._motion_files = []
+        self._motion_rsi_skipped_ranges = []
 
         total_len = 0.0
 
-        motion_files, motion_weights = self._fetch_motion_files(motion_file)
+        motion_files, motion_weights, motion_rsi_skipped_ranges = self._fetch_motion_files(motion_file, skill)
+        
         num_motion_files = len(motion_files)
         for f in range(num_motion_files):
             curr_file = motion_files[f]
             print("Loading {:d}/{:d} motion files: {:s}".format(f + 1, num_motion_files, curr_file))
-            
-            # TODO Need to select joints in this function
             curr_motion = SkeletonMotion.from_file(curr_file, skeleton_ids=self.skeleton_ids)
 
             motion_fps = curr_motion.fps
@@ -280,14 +297,9 @@ class MotionLib():
             self._motion_fps.append(motion_fps)
             self._motion_dt.append(curr_dt)
             self._motion_num_frames.append(num_frames)
- 
+
             curr_dof_vels = self._compute_motion_dof_vels(curr_motion)
             curr_motion.dof_vels = curr_dof_vels
-
-            # TODO: Debug-only
-            # print(f"curr_motion.root_translation height: {curr_motion.root_translation[:, 2]}")
-            curr_motion.root_translation[:, 2] += 0.055
-            # print(f"curr_motion.root_translation height: {curr_motion.root_translation[:, 2]}")
 
             # Moving motion tensors to the GPU
             if USE_CACHE:
@@ -305,6 +317,9 @@ class MotionLib():
             self._motion_weights.append(curr_weight)
             self._motion_files.append(curr_file)
 
+            curr_rsi_skipped_ranges = [frame_id / num_frames * curr_len for frame_id in motion_rsi_skipped_ranges[f]] # times
+            self._motion_rsi_skipped_ranges.append(curr_rsi_skipped_ranges)
+
         self._motion_lengths = torch.tensor(self._motion_lengths, device=self._device, dtype=torch.float32)
 
         self._motion_weights = torch.tensor(self._motion_weights, dtype=torch.float32, device=self._device)
@@ -314,25 +329,33 @@ class MotionLib():
         self._motion_dt = torch.tensor(self._motion_dt, device=self._device, dtype=torch.float32)
         self._motion_num_frames = torch.tensor(self._motion_num_frames, device=self._device)
 
+        self._motion_rsi_skipped_ranges = torch.tensor(self._motion_rsi_skipped_ranges, device=self._device, dtype=torch.float32)
 
         num_motions = self.num_motions()
         total_len = self.get_total_length()
 
-        print("Loaded {:d} motions with a total length of {:.3f}s.".format(num_motions, total_len))
+        # one-hot codes
+        self._motion_labels = torch.eye(num_motions, device=self._device)
+
+        if skill is not None:
+            print("[Skill: {:s}] Loaded {:d} motions with a total length of {:.3f}s.".format(skill, num_motions, total_len))
+        else:
+            print("Loaded {:d} motions with a total length of {:.3f}s.".format(num_motions, total_len))
 
         return
 
-    def _fetch_motion_files(self, motion_file):
+    def _fetch_motion_files(self, motion_file, skill=None):
         ext = os.path.splitext(motion_file)[1]
         if (ext == ".yaml"):
             dir_name = os.path.dirname(motion_file)
             motion_files = []
             motion_weights = []
+            motion_rsi_skipped_ranges = []
 
             with open(os.path.join(os.getcwd(), motion_file), 'r') as f:
                 motion_config = yaml.load(f, Loader=yaml.SafeLoader)
 
-            motion_list = motion_config['motions']
+            motion_list = motion_config['motions'][skill]
             for motion_entry in motion_list:
                 curr_file = motion_entry['file']
                 curr_weight = motion_entry['weight']
@@ -341,24 +364,30 @@ class MotionLib():
                 curr_file = os.path.join(dir_name, curr_file)
                 motion_weights.append(curr_weight)
                 motion_files.append(curr_file)
+
+                curr_rsi_skipped_range = motion_entry.get('rsi_skipped_range', []) # new added
+                if len(curr_rsi_skipped_range) == 0:
+                    curr_rsi_skipped_range = [np.inf, -np.inf]
+                else:
+                    assert len(curr_rsi_skipped_range) == 2
+                    assert curr_rsi_skipped_range[0] < curr_rsi_skipped_range[1]
+
+                motion_rsi_skipped_ranges.append(curr_rsi_skipped_range)
+
         else:
             motion_files = [motion_file]
             motion_weights = [1.0]
+            motion_rsi_skipped_ranges = [[np.inf, -np.inf]]
 
-        return motion_files, motion_weights
+        return motion_files, motion_weights, motion_rsi_skipped_ranges
 
     def _calc_frame_blend(self, time, len, num_frames, dt):
-        """
-        time is a time that we want to smple the motion at, frame_idx 0 is the closest frame before "time" and frame_idx 1 is either
-        the next frame of the last frame (to make sure it is within the range of the motion).
-        Blend is the relative position of time in between frame_idx0 and frame_idx1 during dt.
-        """
 
         phase = time / len
         phase = torch.clip(phase, 0.0, 1.0)
 
         frame_idx0 = (phase * (num_frames - 1)).long()
-        frame_idx1 = torch.min(frame_idx0 + 1, num_frames - 1) # next frame or the last frame
+        frame_idx1 = torch.min(frame_idx0 + 1, num_frames - 1)
         blend = (time - frame_idx0 * dt) / dt
 
         return frame_idx0, frame_idx1, blend
@@ -421,7 +450,7 @@ class MotionLib():
 
         dof_vel = torch.zeros([self._num_dof], device=self._device)
 
-        diff_quat_data = quat_mul_norm(quat_inverse(local_rot0), local_rot1)
+        diff_quat_data = quat_mul_norm(quat_inverse(local_rot0), local_rot1) # inverse rot0 * rot1
         diff_angle, diff_axis = quat_angle_axis(diff_quat_data)
         local_vel = diff_axis * diff_angle.unsqueeze(-1) / dt
         local_vel = local_vel
@@ -445,3 +474,10 @@ class MotionLib():
                 assert(False)
 
         return dof_vel
+
+    def get_motion_label(self, motion_ids):
+        return self._motion_labels[motion_ids]
+
+    def sample_motion_labels(self, n):
+        motion_ids = self.sample_motions(n)
+        return self._motion_labels[motion_ids]

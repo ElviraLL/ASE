@@ -29,6 +29,7 @@
 from enum import Enum
 import numpy as np
 import torch
+import os
 
 from isaacgym import gymapi
 from isaacgym import gymtorch
@@ -70,9 +71,9 @@ class HumanoidAMP(Humanoid):
         self.skeleton_ids = cfg['env'].get('skeletonIDs', None) # this should actually in Humanoid.__init__
         self._load_motion(motion_file, skeleton_ids=self.skeleton_ids)
 
-        self._amp_obs_buf = torch.zeros((self.num_envs, self._num_amp_obs_steps, self._num_amp_obs_per_step), device=self.device, dtype=torch.float)
-        self._curr_amp_obs_buf = self._amp_obs_buf[:, 0]
-        self._hist_amp_obs_buf = self._amp_obs_buf[:, 1:]
+        self._amp_obs_buf = torch.zeros((self.num_envs, self._num_amp_obs_steps, self._num_amp_obs_per_step), device=self.device, dtype=torch.float) #num_env, num_amp_obs_steps, num_amp_obs_per_step: 4096, 10, 169
+        self._curr_amp_obs_buf = self._amp_obs_buf[:, 0] # 4096, 1, 169
+        self._hist_amp_obs_buf = self._amp_obs_buf[:, 1:] # previous 9 observations (9 time steps) 4096, 9, 169
         
         self._amp_obs_demo_buf = None
 
@@ -88,10 +89,10 @@ class HumanoidAMP(Humanoid):
         return
 
     def post_physics_step(self):
-        super().post_physics_step()
+        super().post_physics_step() # compute observation for all envs
         
         self._update_hist_amp_obs()
-        self._compute_amp_observations()
+        self._compute_amp_observations() # compute amp observation for all envs
 
         amp_obs_flat = self._amp_obs_buf.view(-1, self.get_num_amp_obs())
         self.extras["amp_obs"] = amp_obs_flat
@@ -181,12 +182,21 @@ class HumanoidAMP(Humanoid):
     def _load_motion(self, motion_file, skeleton_ids=None):
         # TODO: A different load motion class
         assert(self._dof_offsets[-1] == self.num_dof)
-        self._motion_lib = MotionLib(motion_file=motion_file,
-                                     dof_body_ids=self._dof_body_ids,
-                                     dof_offsets=self._dof_offsets,
-                                     key_body_ids=self._key_body_ids.cpu().numpy(), 
-                                     device=self.device,
-                                     skeleton_ids=skeleton_ids)
+        ext = os.path.splitext(motion_file)[1]
+        if (ext == ".yaml"):
+            self._motion_lib = MotionLib(motion_file=motion_file,
+                                         skill=self.cfg["env"]["skill"],
+                                         dof_body_ids=self._dof_body_ids,
+                                         dof_offsets=self._dof_offsets,
+                                         key_body_ids=self._key_body_ids.cpu().numpy(), 
+                                         device=self.device)
+        elif (ext == '.npy'):
+            self._motion_lib = MotionLib(motion_file=motion_file,
+                                        dof_body_ids=self._dof_body_ids,
+                                        dof_offsets=self._dof_offsets,
+                                        key_body_ids=self._key_body_ids.cpu().numpy(), 
+                                        device=self.device,
+                                        skeleton_ids=skeleton_ids)
         return
     
     def _reset_envs(self, env_ids):

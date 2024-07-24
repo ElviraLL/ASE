@@ -374,7 +374,7 @@ class CommonAgent(a2c_continuous.A2CAgent):
             returns = self.value_mean_std(returns)
 
         dataset_dict = {}
-        dataset_dict['old_values'] = values
+        dataset_dict['old_values'] = values 
         dataset_dict['old_logp_actions'] = neglogpacs
         dataset_dict['advantages'] = advantages
         dataset_dict['returns'] = returns

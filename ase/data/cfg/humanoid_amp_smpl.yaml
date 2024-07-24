@@ -20,6 +20,12 @@ env:
   terminationHeight: 0.15
   enableEarlyTermination: True
 
+  skill: "loco"
+  enableConditionalDisc: False
+  enableConditionChange: False
+  conditionChangeStepsMin: 100
+  conditionChangeStepsMax: 150
+
   asset:
     assetRoot: "ase/data/assets"
     assetFileName: "mjcf/smpl_humanoid_v2.xml"

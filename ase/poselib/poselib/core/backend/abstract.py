@@ -160,7 +160,7 @@ class Serializable:
 
 
         skeleton_ids = kwargs.get("skeleton_ids", None)
-        if skeleton_ids is not None:
+        if skeleton_ids is not None and len(skeleton_ids) < len(d['skeleton_tree']['node_names']):
             d['rotation']['arr'] = d['rotation']['arr'][:, skeleton_ids]
             d['global_velocity']['arr'] = d['global_velocity']['arr'][:, skeleton_ids]
             d['global_angular_velocity']['arr'] = d['global_angular_velocity']['arr'][:, skeleton_ids]

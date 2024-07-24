@@ -210,7 +210,7 @@ class Humanoid(BaseTask):
         self.reset_buf[env_ids] = 0
         self._terminate_buf[env_ids] = 0
         # TODO: Jingwen Do we need to reset the contact forces?
-        self._contact_forces[env_ids] = 0
+        # self._contact_forces[env_ids] = 0
         return
 
     def _create_ground_plane(self):
@@ -708,7 +708,7 @@ class Humanoid(BaseTask):
         self.progress_buf += 1
 
         self._refresh_sim_tensors()
-        self._compute_observations()
+        self._compute_observations() # compute observation for all envs
         self._compute_reward(self.actions)
         self._compute_reset()
         
@@ -957,13 +957,9 @@ def compute_humanoid_reset(reset_buf, progress_buf, contact_buf, contact_body_id
 
     if (enable_early_termination):
         masked_contact_buf = contact_buf.clone()
-        # #print(f"ase.humanoid.compute_humanoid_reset: masked_contact_buf: {masked_contact_buf.shape}") # should be same as the data size?
         masked_contact_buf[:, contact_body_ids, :] = 0
-        # #print(f"ase.humanoid.compute_humanoid_reset: contact_body_ids: {contact_body_ids}")
         fall_contact = torch.any(torch.abs(masked_contact_buf) > 0.1, dim=-1)
-        # #print(f"ase.humanoid.compute_humanoid_reset: fall_contact: {fall_contact.shape}")
         fall_contact = torch.any(fall_contact, dim=-1)
-        # #print(f"ase.humanoid.compute_humanoid_reset: fall_contact: {fall_contact.shape}")
 
         body_height = rigid_body_pos[..., 2]
         fall_height = body_height < termination_heights
