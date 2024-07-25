@@ -1,0 +1,985 @@
+"""
+multi-agent version
+"""
+
+import numpy as np
+import os
+import torch
+
+from isaacgym import gymtorch
+from isaacgym import gymapi
+from isaacgym.torch_utils import *
+
+from utils import torch_utils
+from utils import smpl_utils
+
+from env.tasks.base_task import BaseTask
+
+
+
+class HumanoidMultiAgent(BaseTask):
+    def __init__(self, cfg, sim_params, physics_engine, device_type, device_id, headless):
+        # for smpl
+        # self._body_names = smpl_utils.SMPL_MUJOCO_NAMES
+        # self._dof_names = self._body_names[1:]
+        self.num_agents = cfg["env"]["num_agents"]
+        self.cfg = cfg
+        self.sim_params = sim_params
+        self.physics_engine = physics_engine
+
+        self._pd_control = self.cfg["env"]["pdControl"]
+        self.power_scale = self.cfg["env"]["powerScale"]
+
+        self.debug_viz = self.cfg["env"]["enableDebugVis"]
+        self.plane_static_friction = self.cfg["env"]["plane"]["staticFriction"]
+        self.plane_dynamic_friction = self.cfg["env"]["plane"]["dynamicFriction"]
+        self.plane_restitution = self.cfg["env"]["plane"]["restitution"]
+
+        self.max_episode_length = self.cfg["env"]["episodeLength"]
+        self._local_root_obs = self.cfg["env"]["localRootObs"]
+        self._root_height_obs = self.cfg["env"].get("rootHeightObs", True)
+        self._enable_early_termination = self.cfg["env"]["enableEarlyTermination"]
+        
+        key_bodies = self.cfg["env"]["keyBodies"]
+        self._setup_character_props(key_bodies)
+
+        self.cfg["env"]["numObservations"] = self.get_obs_size()
+        self.cfg["env"]["numActions"] = self.get_action_size()
+
+        self.cfg["device_type"] = device_type
+        self.cfg["device_id"] = device_id
+        self.cfg["headless"] = headless
+         
+        super().__init__(cfg=self.cfg)
+        
+        self.dt = self.control_freq_inv * sim_params.dt
+        
+        # get gym GPU state tensors
+        actor_root_state = self.gym.acquire_actor_root_state_tensor(self.sim)
+        dof_state_tensor = self.gym.acquire_dof_state_tensor(self.sim)
+        sensor_tensor = self.gym.acquire_force_sensor_tensor(self.sim)
+        rigid_body_state = self.gym.acquire_rigid_body_state_tensor(self.sim)
+        contact_force_tensor = self.gym.acquire_net_contact_force_tensor(self.sim)
+
+        # sensors_per_env = 2
+        sensors_per_env = 2
+        self.vec_sensor_tensor = gymtorch.wrap_tensor(sensor_tensor).view(self.num_envs * self.num_agents, sensors_per_env * 6)
+
+        dof_force_tensor = self.gym.acquire_dof_force_tensor(self.sim)
+        self.dof_force_tensor = gymtorch.wrap_tensor(dof_force_tensor).view(self.num_envs * self.num_agents, self.num_dof)
+        
+        self.gym.refresh_dof_state_tensor(self.sim)
+        self.gym.refresh_actor_root_state_tensor(self.sim)
+        self.gym.refresh_rigid_body_state_tensor(self.sim)
+        self.gym.refresh_net_contact_force_tensor(self.sim)
+
+        self._root_states = gymtorch.wrap_tensor(actor_root_state)
+        num_actors = self.get_num_actors_per_env()
+
+        self._dof_state = gymtorch.wrap_tensor(dof_state_tensor)
+        dofs_per_env = self._dof_state.shape[0] // self.num_envs
+
+        self._rigid_body_state = gymtorch.wrap_tensor(rigid_body_state)
+        bodies_per_env = self._rigid_body_state.shape[0] // self.num_envs
+        rigid_body_state_reshaped = self._rigid_body_state.view(self.num_envs, bodies_per_env, 13)
+
+        contact_force_tensor = gymtorch.wrap_tensor(contact_force_tensor)
+
+        self._humanoid_root_states_list = []
+        self._initial_humanoid_root_states_list = []
+        self._humanoid_actor_ids_list = []
+        self._dof_pos_list = []
+        self._dof_vel_list = []
+        self._initial_dof_pos_list = []
+        self._initial_dof_vel_list = []
+        self._rigid_body_pos_list = []
+        self._rigid_body_rot_list = []
+        self._rigid_body_vel_list = []
+        self._rigid_body_ang_vel_list = []
+        self._contact_forces_list = []
+        self._initial_humanoid_rigid_body_states_list = []
+        
+        self._reset_rb_pos_list = [torch.zeros(0)]  * self.num_agents
+        self._reset_rb_rot_list = [torch.zeros(0)]  * self.num_agents
+        self._reset_rb_vel_list = [torch.zeros(0)]  * self.num_agents
+        self._reset_rb_ang_vel_list = [torch.zeros(0)]  * self.num_agents
+        
+
+        for i in range(self.num_agents):
+            
+            self._humanoid_root_states_list.append(self._root_states.view(self.num_envs, num_actors, actor_root_state.shape[-1])[..., i, :])
+            initial_humanoid_root_states = self._humanoid_root_states_list[i].clone()
+            initial_humanoid_root_states[:, 7:13] = 0
+            self._initial_humanoid_root_states_list.append(initial_humanoid_root_states)
+
+            self._humanoid_actor_ids_list.append(num_actors * torch.arange(self.num_envs, device=self.device, dtype=torch.int32) + i)
+
+            # create some wrapper tensors for different slices
+            dof_pos = self._dof_state.view(self.num_envs, dofs_per_env, 2)[..., i*self.num_dof:(i+1)*self.num_dof, 0]
+            dof_vel = self._dof_state.view(self.num_envs, dofs_per_env, 2)[..., i*self.num_dof:(i+1)*self.num_dof, 1]
+            self._dof_pos_list.append(dof_pos)
+            self._dof_vel_list.append(dof_vel)
+
+            initial_dof_pos = torch.zeros_like(dof_pos, device=self.device, dtype=torch.float)
+            initial_dof_vel = torch.zeros_like(dof_vel, device=self.device, dtype=torch.float)
+            
+            self._initial_dof_pos_list.append(initial_dof_pos)
+            self._initial_dof_vel_list.append(initial_dof_vel)  
+            
+
+            initial_humanoid_rigid_body_states = rigid_body_state_reshaped[..., i*self.num_bodies:(i+1)*self.num_bodies, :].clone()
+            initial_humanoid_rigid_body_states[..., 7:13] = 0
+            self._initial_humanoid_rigid_body_states_list.append(initial_humanoid_rigid_body_states)
+
+            self._rigid_body_pos_list.append(rigid_body_state_reshaped[..., i*self.num_bodies:(i+1)*self.num_bodies, 0:3]) # 0, 1, 2
+            self._rigid_body_rot_list.append(rigid_body_state_reshaped[..., i*self.num_bodies:(i+1)*self.num_bodies, 3:7]) # 3, 4, 5, 6, quaternion
+            self._rigid_body_vel_list.append(rigid_body_state_reshaped[..., i*self.num_bodies:(i+1)*self.num_bodies, 7:10]) # velocity
+            self._rigid_body_ang_vel_list.append(rigid_body_state_reshaped[..., i*self.num_bodies:(i+1)*self.num_bodies, 10:13]) # angular velocity
+
+            
+            self._contact_forces_list.append(contact_force_tensor.view(self.num_envs, bodies_per_env, 3)[..., i*self.num_bodies:(i+1)*self.num_bodies, :])
+            
+        self._terminate_buf = torch.ones(self.num_envs, device=self.device, dtype=torch.long)
+        self._build_termination_heights()
+        
+        contact_bodies = self.cfg["env"]["contactBodies"]
+        self._key_body_ids = self._build_key_body_ids_tensor(key_bodies)
+        self._contact_body_ids = self._build_contact_body_ids_tensor(contact_bodies)
+        
+        if self.viewer != None:
+            self._init_camera()  
+        return
+
+    def get_obs_size(self):
+        return self._num_obs
+
+    def get_action_size(self):
+        return self._num_actions
+
+    def get_num_actors_per_env(self):
+        num_actors = self._root_states.shape[0] // self.num_envs
+        return num_actors
+
+    def create_sim(self):
+        self.up_axis_idx = self.set_sim_params_up_axis(self.sim_params, 'z')
+        self.sim = super().create_sim(self.device_id, self.graphics_device_id, self.physics_engine, self.sim_params)
+
+        self._create_ground_plane()
+        self._create_envs(self.num_envs, self.cfg["env"]['envSpacing'], int(np.sqrt(self.num_envs)))
+        return
+
+    def reset(self, env_ids=None):
+        if (env_ids is None):
+            env_ids = to_torch(np.arange(self.num_envs), device=self.device, dtype=torch.long)
+        self._reset_envs(env_ids)
+        # TODO: Jingwen There is  some extra steps in PHC in the reset functionS
+        return
+
+    def set_char_color(self, col, env_ids):
+        for env_id in env_ids:
+            env_ptr = self.envs[env_id]
+            handle = self.humanoid_handles[env_id]
+
+            for j in range(self.num_bodies):
+                self.gym.set_rigid_body_color(env_ptr, handle, j, gymapi.MESH_VISUAL,
+                                              gymapi.Vec3(col[0], col[1], col[2]))
+
+        return
+
+    def _reset_envs(self, env_ids):
+        if (len(env_ids) > 0):
+            self._reset_actors(env_ids) # sample motion, sample time, load motion at sampled time, assign to instance variables in self
+            self._reset_env_tensors(env_ids) # gym set actor root state, set dof state 
+            self._refresh_sim_tensors() # refresh sim tensors
+            self._compute_observations(env_ids) # compute humanoid observation
+        return
+
+    def _reset_env_tensors(self, env_ids):
+        env_ids_int32 = self._humanoid_actor_ids[env_ids]
+        self.gym.set_actor_root_state_tensor_indexed(self.sim,
+                                                     gymtorch.unwrap_tensor(self._root_states),
+                                                     gymtorch.unwrap_tensor(env_ids_int32), len(env_ids_int32))
+        self.gym.set_dof_state_tensor_indexed(self.sim,
+                                              gymtorch.unwrap_tensor(self._dof_state),
+                                              gymtorch.unwrap_tensor(env_ids_int32), len(env_ids_int32))
+        
+        # print("#################### refreshing ####################")
+        # print("rb", (self._rigid_body_state_reshaped[None, :] - self._rigid_body_state_reshaped[:, None]).abs().sum())
+        # print("contact", (self._contact_forces[None, :] - self._contact_forces[:, None]).abs().sum())
+        # print('dof_pos', (self._dof_pos[None, :] - self._dof_pos[:, None]).abs().sum())
+        # print("dof_vel", (self._dof_vel[None, :] - self._dof_vel[:, None]).abs().sum())
+        # print("root_states", (self._humanoid_root_states[None, :] - self._humanoid_root_states[:, None]).abs().sum())
+        # print("#################### refreshing ####################")
+        
+        self.progress_buf[env_ids] = 0
+        self.reset_buf[env_ids] = 0
+        self._terminate_buf[env_ids] = 0
+        # TODO: Jingwen Do we need to reset the contact forces?
+        # self._contact_forces[env_ids] = 0
+        return
+
+    def _create_ground_plane(self):
+        plane_params = gymapi.PlaneParams()
+        plane_params.normal = gymapi.Vec3(0.0, 0.0, 1.0)
+        plane_params.static_friction = self.plane_static_friction
+        plane_params.dynamic_friction = self.plane_dynamic_friction
+        plane_params.restitution = self.plane_restitution
+        self.gym.add_ground(self.sim, plane_params)
+        return
+
+    def _setup_character_props(self, key_bodies):
+        #print(f"ase.env.tasks.humanoid.Humanoid._setup_character_props: key_bodies: {key_bodies}")
+
+        asset_file = self.cfg["env"]["asset"]["assetFileName"]
+        #print(f"ase.env.tasks.humanoid.Humanoid._setup_character_props: asset_file: {asset_file}")
+
+        # TODO: Jingwen, difference: num_key_bodies = len(key_bodies)
+
+        if (asset_file == "mjcf/amp_humanoid.xml"):
+            self._dof_body_ids = [1, 2, 3, 4, 6, 7, 9, 10, 11, 12, 13, 14]
+            self._dof_offsets = [0, 3, 6, 9, 10, 13, 14, 17, 18, 21, 24, 25, 28]
+            self._dof_obs_size = 72
+            self._num_actions = 28
+            self._num_obs = 1 + 15 * (3 + 6 + 3 + 3) - 3
+            
+        elif (asset_file == "mjcf/amp_humanoid_sword_shield.xml"):
+            self._dof_body_ids = [1, 2, 3, 4, 5, 7, 8, 11, 12, 13, 14, 15, 16]
+            self._dof_offsets = [0, 3, 6, 9, 10, 13, 16, 17, 20, 21, 24, 27, 28, 31]
+            self._dof_obs_size = 78
+            self._num_actions = 31
+            self._num_obs = 1 + 17 * (3 + 6 + 3 + 3) - 3
+        
+        elif (asset_file == "mjcf/smpl_humanoid.xml"):
+            self._dof_body_ids = np.arange(1, len(self._body_names))
+            self._dof_offsets = np.linspace(0, len(self._dof_names) * 3, len(self._body_names)).astype(int) # each joint has 3 dof 
+            self._dof_obs_size = len(self._dof_names) * 6
+            self._num_actions = len(self._dof_names) * 3
+            self._num_obs = 1 + len(self._body_names) * (3 + 6 + 3 + 3) - 3  # height + num_bodies * 15 (pos + vel + rot + ang_vel) - root_pos
+            
+            print(f"ase.env.tasks.humanoid.Humanoid._setup_character_props: self._dof_body_ids {self._dof_body_ids}")
+            print(f"ase.env.tasks.humanoid.Humanoid._setup_character_props: self._dof_offsets {self._dof_offsets}")
+            print(f"ase.env.tasks.humanoid.Humanoid._setup_character_props: self._dof_obs_size {self._dof_obs_size}")
+            print(f"ase.env.tasks.humanoid.Humanoid._setup_character_props: self._num_actions {self._num_actions}")
+            print(f"ase.env.tasks.humanoid.Humanoid._setup_character_props: self._num_obs {self._num_obs}")
+            # TODO: Jingwen, difference: check if there are REDUCED actions, check if ENABLE_MAX_COORD_OBS there is also self._num_self_obs
+        elif (asset_file == "mjcf/smpl_humanoid_v2.xml"):
+            self._body_names = [
+                'Pelvis',
+                'L_Hip', 'L_Knee', 'L_Ankle',
+                'R_Hip', 'R_Knee', 'R_Ankle',
+                'Torso', 'Spine', 'Chest', 'Neck',
+                'L_Thorax', 'L_Shoulder', 'L_Elbow', 'L_Wrist',
+                'R_Thorax', 'R_Shoulder', 'R_Elbow', 'R_Wrist',
+            ]
+            
+            self._dof_body_ids = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 15, 16, 17] # len=16
+            self._dof_offsets = np.linspace(0, len(self._dof_body_ids) * 3, len(self._dof_body_ids) + 1).astype(int)
+            self._dof_obs_size = len(self._dof_body_ids) * 6
+            self._num_actions = len(self._dof_body_ids) * 3
+            self._num_obs = 1 + len(self._body_names) * (3 + 6 + 3 + 3) - 3
+
+            self._body_head_name = "Neck"
+            self._body_left_foot_name = "L_Ankle"
+            self._body_right_foot_name = "R_Ankle"
+        else:
+            print("Unsupported character config file: {s}".format(asset_file))
+            assert(False)
+
+        return
+
+    def _build_termination_heights(self):
+        head_term_height = 0.3
+
+        termination_height = self.cfg["env"]["terminationHeight"]
+        self._termination_heights = np.array([termination_height] * self.num_bodies)
+
+        head_id = self.gym.find_actor_rigid_body_handle(self.envs[0], self.humanoid_handles[0], self._body_head_name)
+        self._termination_heights[head_id] = max(head_term_height, self._termination_heights[head_id])
+        
+        self._termination_heights = to_torch(self._termination_heights, device=self.device)
+        return
+
+    def _create_envs(self, num_envs, spacing, num_per_row):
+        lower = gymapi.Vec3(-spacing, -spacing, 0.0)
+        upper = gymapi.Vec3(spacing, spacing, spacing)
+
+        asset_root = self.cfg["env"]["asset"]["assetRoot"]
+        asset_file = self.cfg["env"]["asset"]["assetFileName"]
+
+        asset_path = os.path.join(asset_root, asset_file)
+        asset_root = os.path.dirname(asset_path)
+        asset_file = os.path.basename(asset_path)
+
+        asset_options = gymapi.AssetOptions()
+        asset_options.angular_damping = 0.01
+        asset_options.max_angular_velocity = 100.0
+        asset_options.default_dof_drive_mode = gymapi.DOF_MODE_NONE
+        #asset_options.fix_base_link = True
+        humanoid_asset = self.gym.load_asset(self.sim, asset_root, asset_file, asset_options)
+
+        actuator_props = self.gym.get_asset_actuator_properties(humanoid_asset)
+        motor_efforts = [prop.motor_effort for prop in actuator_props]
+        
+        # create force sensors at the feet
+        right_foot_idx = self.gym.find_asset_rigid_body_index(humanoid_asset, self._body_right_foot_name) # left_Ankle
+        left_foot_idx = self.gym.find_asset_rigid_body_index(humanoid_asset, self._body_left_foot_name) # right_Ankle
+        sensor_pose = gymapi.Transform()
+        self.gym.create_asset_force_sensor(humanoid_asset, right_foot_idx, sensor_pose)
+        self.gym.create_asset_force_sensor(humanoid_asset, left_foot_idx, sensor_pose)
+
+        # TODO: Jingwen, use PHD's function to create humanoid force sensors, joint is copied from PHD too
+        # self.create_humanoid_force_sensors(humanoid_asset, ["L_Ankle", "R_Ankle"]) 
+
+
+        self.max_motor_effort = max(motor_efforts)
+        self.motor_efforts = to_torch(motor_efforts, device=self.device)
+
+        self.torso_index = 0
+        self.num_bodies = self.gym.get_asset_rigid_body_count(humanoid_asset)
+        self.num_dof = self.gym.get_asset_dof_count(humanoid_asset)
+        self.num_joints = self.gym.get_asset_joint_count(humanoid_asset)
+
+        self.humanoid_handles = []
+        self.envs = []
+        self.dof_limits_lower = []
+        self.dof_limits_upper = []
+        
+        for i in range(self.num_envs):
+            # create env instance
+            env_ptr = self.gym.create_env(self.sim, lower, upper, num_per_row)
+            self._build_env(i, env_ptr, humanoid_asset)
+            self.envs.append(env_ptr)
+
+        dof_prop = self.gym.get_actor_dof_properties(self.envs[0], self.humanoid_handles[0])
+        #print(f"ase.env.tasks.humanoid: dof_prop: {dof_prop}")
+        # log the dof limits
+        # ('hasLimits', 'lower', 'upper', 'driveMode', 'velocity', 'effort', 'stiffness', 'damping', 'friction', 'armature')
+
+        for j in range(self.num_dof):
+            if dof_prop['lower'][j] > dof_prop['upper'][j]:
+                self.dof_limits_lower.append(dof_prop['upper'][j])
+                self.dof_limits_upper.append(dof_prop['lower'][j])
+            else:
+                self.dof_limits_lower.append(dof_prop['lower'][j])
+                self.dof_limits_upper.append(dof_prop['upper'][j])
+
+        self.dof_limits_lower = to_torch(self.dof_limits_lower, device=self.device)
+        self.dof_limits_upper = to_torch(self.dof_limits_upper, device=self.device)
+
+        # if self.control_mode == "pd":
+        #     self.torque_limits = torch.ones_like(self.dof_limits_upper) * 1000 # ZL: hacking 
+
+        if self._pd_control:
+            self._build_pd_action_offset_scale()
+        return
+    
+
+    # def create_humanoid_force_sensors(self, humanoid_asset, sensor_joint_names):
+    #     # TODO: Jingwen Add this function from PHC to create force sensors
+    #     for jt in sensor_joint_names:
+    #         right_foot_idx = self.gym.find_asset_rigid_body_index(humanoid_asset, jt)
+    #         sensor_pose = gymapi.Transform()
+    #         sensor_options = gymapi.ForceSensorProperties()
+    #         sensor_options.enable_constraint_solver_forces = True # for example contacts 
+    #         sensor_options.use_world_frame = False # Local frame so we can directly send it to computation. 
+    #         # These are the default values. 
+            
+    #         self.gym.create_asset_force_sensor(humanoid_asset, right_foot_idx, sensor_pose, sensor_options)
+    #     return
+    
+    def _build_env(self, env_id, env_ptr, humanoid_asset):
+        # TODO: Jingwen, use PHD's function to build humanoid, they have humanoid_masses and humanoid_limb_and_weights
+        col_group = env_id
+        col_filter = self._get_humanoid_collision_filter()
+        segmentation_id = 0
+
+        start_pose = gymapi.Transform()
+        asset_file = self.cfg["env"]["asset"]["assetFileName"]
+        char_h = 0.89
+
+        start_pose.p = gymapi.Vec3(*get_axis_params(char_h, self.up_axis_idx))
+        start_pose.r = gymapi.Quat(0.0, 0.0, 0.0, 1.0)
+
+        humanoid_handle = self.gym.create_actor(env_ptr, humanoid_asset, start_pose, "humanoid", col_group, col_filter, segmentation_id)
+        self.gym.enable_actor_dof_force_sensors(env_ptr, humanoid_handle)
+
+        for j in range(self.num_bodies):
+            self.gym.set_rigid_body_color(env_ptr, humanoid_handle, j, gymapi.MESH_VISUAL, gymapi.Vec3(0.54, 0.85, 0.2))
+
+        if (self._pd_control):
+            dof_prop = self.gym.get_asset_dof_properties(humanoid_asset)
+            dof_prop["driveMode"] = gymapi.DOF_MODE_POS
+            self.gym.set_actor_dof_properties(env_ptr, humanoid_handle, dof_prop)
+        # TODO: Jingwen, phc setup lots of dof prop here including 
+        # 1. check if self.has_shape_variation: and setup different self.kp_scale and self._kd_scale
+        # 2. dof_prop["driveMode"][:] = gymapi.DOF_MODE_POS
+        # print(f"ase.env.tasks.humanoid.Humanoid._build_env: setting up dof_prop")
+        # dof_prop = self.gym.get_asset_dof_properties(humanoid_asset)
+        # if self.has_shape_variation:
+        #     print(f"ase.env.tasks.humanoid.Humanoid._build_env: has_shape_variation")
+        #     pd_scale = humanoid_mass / self.cfg['env'].get('default_humanoid_mass', 77.0 if self._real_weight else 35.0)
+        #     self._kp_scale = pd_scale * self._kp_scale
+        #     self._kd_scale = pd_scale * self._kd_scale
+            
+        # if (self.control_mode == "isaac_pd"):
+        #     dof_prop["driveMode"][:] = gymapi.DOF_MODE_POS
+        #     dof_prop['stiffness'] *= self._kp_scale
+        #     dof_prop['damping'] *= self._kd_scale
+        # else:
+        #     if self.control_mode == "pd":
+        #         # self.kp_gains = to_torch(self._kp_scale * dof_prop['stiffness'], device=self.device)
+        #         # self.kd_gains = to_torch(self._kd_scale * dof_prop['damping'], device=self.device)
+        #         self.kp_gains = to_torch(self._kp_scale * dof_prop['stiffness']/4, device=self.device)
+        #         self.kd_gains = to_torch(self._kd_scale * dof_prop['damping']/4, device=self.device)
+        #         dof_prop['velocity'][:] = 100
+        #         dof_prop['stiffness'][:] = 0
+        #         dof_prop['friction'][:] = 1
+        #         dof_prop['damping'][:] = 0.001
+        #     elif self.control_mode == "force":
+        #         dof_prop['velocity'][:] = 100
+        #         dof_prop['stiffness'][:] = 0
+        #         dof_prop['friction'][:] = 1
+        #         dof_prop['damping'][:] = 0.001
+        #     dof_prop["driveMode"][:] = gymapi.DOF_MODE_EFFORT
+        # self.gym.set_actor_dof_properties(env_ptr, humanoid_handle, dof_prop)
+
+        # TODO: Jingwen, phc setup the self.gym.set_actor_rigid_shape_properties
+        # if self.humanoid_type in ["smpl", "smplh", "smplx"] and self._has_self_collision:
+        #     # compliance_vals = [0.1] * 24
+        #     # thickness_vals = [1.0] * 24
+        #     if self._has_mesh:
+        #         filter_ints = [0, 1, 224, 512, 384, 1, 1792, 64, 1056, 4096, 6, 6168, 0, 2048, 0, 20, 0, 0, 0, 0, 10, 0, 0, 0]
+        #     else:
+        #         if self.humanoid_type == "smpl":
+        #             filter_ints = [0, 0, 7, 16, 12, 0, 56, 2, 33, 128, 0, 192, 0, 64, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+        #         elif self.humanoid_type in ["smplh", "smplx"]:
+        #             filter_ints = [0, 0, 7, 16, 12, 0, 56, 2, 33, 128, 0, 192, 0, 64, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+                    
+        #     props = self.gym.get_actor_rigid_shape_properties(env_ptr, humanoid_handle)
+
+        #     assert (len(filter_ints) == len(props))
+        #     for p_idx in range(len(props)):
+        #         props[p_idx].filter = filter_ints[p_idx]
+        #     self.gym.set_actor_rigid_shape_properties(env_ptr, humanoid_handle, props)
+
+        self.humanoid_handles.append(humanoid_handle)
+        return
+
+    def _build_pd_action_offset_scale(self):
+        #print(f"ase.env.tass.humanoid.py._build_pd_action_offset_scale: Building PD action offset and scale ")
+        #print(f"ase.env.tass.humanoid.py._build_pd_action_offset_scale: self._dof_offsets {self._dof_offsets}")
+        num_joints = len(self._dof_offsets) - 1
+        #print(f"ase.env.tass.humanoid.py._build_pd_action_offset_scale: num_joints {num_joints}")
+        
+        lim_low = self.dof_limits_lower.cpu().numpy()
+        lim_high = self.dof_limits_upper.cpu().numpy()
+        #print(f"ase.env.tass.humanoid.py._build_pd_action_offset_scale: get dof_limits_lower: lim_low {lim_low}")
+        #print(f"ase.env.tass.humanoid.py._build_pd_action_offset_scale: get dof_limits_upper: lim_high {lim_high}")
+        #print(f"ase.env.tass.humanoid.py._build_pd_action_offset_scale: length of lim_low {len(lim_low)}, length of lim_high {len(lim_high)}")
+
+        for j in range(num_joints):
+            print(" ")
+            # print(f"joint: {j}")
+            # print(f"joint name: {self._dof_names[j]}")
+            dof_offset = self._dof_offsets[j]
+            dof_size = self._dof_offsets[j + 1] - self._dof_offsets[j]
+            # print(f"dof_offset: {dof_offset} dof_size: {dof_size}")
+            # print(f"dof_zize: {dof_size}")
+
+            if (dof_size == 3):
+                #print(f"ase.env.tass.humanoid.py._build_pd_action_offset_scale: dof_size == 3")
+                curr_low = lim_low[dof_offset:(dof_offset + dof_size)]
+                curr_high = lim_high[dof_offset:(dof_offset + dof_size)]
+                curr_low = np.max(np.abs(curr_low))
+                curr_high = np.max(np.abs(curr_high))
+                curr_scale = max([curr_low, curr_high])
+                curr_scale = 1.2 * curr_scale
+                curr_scale = min([curr_scale, np.pi])
+
+                lim_low[dof_offset:(dof_offset + dof_size)] = -curr_scale
+                lim_high[dof_offset:(dof_offset + dof_size)] = curr_scale
+                # print(f"lim_low: {lim_low}")
+                # print(f"lim_high: {lim_high}")
+                
+                #lim_low[dof_offset:(dof_offset + dof_size)] = -np.pi
+                #lim_high[dof_offset:(dof_offset + dof_size)] = np.pi
+
+
+            elif (dof_size == 1):
+                # print(f"joint: {j} is a revolute joint")
+                curr_low = lim_low[dof_offset]
+                curr_high = lim_high[dof_offset]
+                curr_mid = 0.5 * (curr_high + curr_low)
+                
+                # extend the action range to be a bit beyond the joint limits so that the motors
+                # don't lose their strength as they approach the joint limits
+                curr_scale = 0.7 * (curr_high - curr_low)
+                curr_low = curr_mid - curr_scale
+                curr_high = curr_mid + curr_scale
+
+                lim_low[dof_offset] = curr_low
+                lim_high[dof_offset] =  curr_high
+                # print(f"lim_low: {lim_low}")
+                # print(f"lim_high: {lim_high}")\
+        #print(f"ase.env.tass.humanoid.py._build_pd_action_offset_scale: after loop:")
+        #print(f"ase.env.tass.humanoid.py._build_pd_action_offset_scale: get dof_limits_lower: lim_low {lim_low}")
+        #print(f"ase.env.tass.humanoid.py._build_pd_action_offset_scale: get dof_limits_upper: lim_high {lim_high}")
+
+        self._pd_action_offset = 0.5 * (lim_high + lim_low)
+        self._pd_action_scale = 0.5 * (lim_high - lim_low)
+        self._pd_action_offset = to_torch(self._pd_action_offset, device=self.device)
+        self._pd_action_scale = to_torch(self._pd_action_scale, device=self.device)
+        #print(f"ase.env.tass.humanoid.py._build_pd_action_offset_scale: self._pd_action_scale {self._pd_action_scale}")
+        
+        # TODO: Jingwen, difference: left, right knee has different pd_action_scale
+        # if self.humanoid_type in ["smpl", "smplh", "smplx"]:
+        #     print(f"ase.env.tass.humanoid.py._build_pd_action_offset_scale: {self.humanoid_type} in [smpl, smplh, smplx]")
+        #     self._L_knee_dof_idx = self._dof_names.index("L_Knee") * 3 + 1
+        #     self._R_knee_dof_idx = self._dof_names.index("R_Knee") * 3 + 1
+
+        #     # ZL: Modified SMPL to give stronger knee
+        #     self._pd_action_scale[self._L_knee_dof_idx] = 5
+        #     self._pd_action_scale[self._R_knee_dof_idx] = 5
+        #     print(f"ase.env.tass.humanoid.py._build_pd_action_offset_scale: self._pd_action_scale {self._pd_action_scale}")
+            
+        return
+
+    def _build_pd_action_offset_scale_new(self):
+        print(f"ase.env.tass.humanoid.py._build_pd_action_offset_scale: Building PD action offset and scale for smpl asset")
+        print(f"ase.env.tass.humanoid.py._build_pd_action_offset_scale: self._dof_offsets {self._dof_offsets}")
+        num_joints = len(self._dof_offsets) - 1
+        print(f"ase.env.tass.humanoid.py._build_pd_action_offset_scale: num_joints {num_joints}")
+
+        lim_low = self.dof_limits_lower.cpu().numpy()
+        lim_high = self.dof_limits_upper.cpu().numpy()
+        print(f"ase.env.tass.humanoid.py._build_pd_action_offset_scale: get dof_limits_lower: lim_low {lim_low}")
+        print(f"ase.env.tass.humanoid.py._build_pd_action_offset_scale: get dof_limits_upper: lim_high {lim_high}")
+        print(f"ase.env.tass.humanoid.py._build_pd_action_offset_scale: length of lim_low {len(lim_low)}, length of lim_high {len(lim_high)}")
+
+        print(f"ase.env.tass.humanoid.py._build_pd_action_offset_scale: iterate over num_joints {num_joints}")
+        for j in range(num_joints):
+            print(" ")
+            dof_offset = self._dof_offsets[j]
+            dof_size = self._dof_offsets[j + 1] - self._dof_offsets[j]
+            if not self._bias_offset:
+                print(f"ase.env.tass.humanoid.py._build_pd_action_offset_scale: not self._bias_offset, dof_offset {dof_offset} dof_size {dof_size}")
+                if (dof_size == 3):
+                    print(f"ase.env.tass.humanoid.py._build_pd_action_offset_scale: dof_size == 3")
+                    curr_low = lim_low[dof_offset:(dof_offset + dof_size)]
+                    curr_high = lim_high[dof_offset:(dof_offset + dof_size)]
+                    curr_low = np.max(np.abs(curr_low))
+                    curr_high = np.max(np.abs(curr_high))
+                    curr_scale = max([curr_low, curr_high])
+                    curr_scale = 1.2 * curr_scale
+                    curr_scale = min([curr_scale, np.pi])
+
+                    lim_low[dof_offset:(dof_offset + dof_size)] = -curr_scale
+                    lim_high[dof_offset:(dof_offset + dof_size)] = curr_scale
+
+                    #lim_low[dof_offset:(dof_offset + dof_size)] = -np.pi
+                    #lim_high[dof_offset:(dof_offset + dof_size)] = np.pi
+                    
+
+                elif (dof_size == 1):
+                    print(f"ase.env.tass.humanoid.py._build_pd_action_offset_scale: dof_size == 1")
+                    curr_low = lim_low[dof_offset]
+                    curr_high = lim_high[dof_offset]
+                    curr_mid = 0.5 * (curr_high + curr_low)
+
+                    # extend the action range to be a bit beyond the joint limits so that the motors
+                    # don't lose their strength as they approach the joint limits
+                    curr_scale = 0.7 * (curr_high - curr_low)
+                    curr_low = curr_mid - curr_scale
+                    curr_high = curr_mid + curr_scale
+
+                    lim_low[dof_offset] = curr_low
+                    lim_high[dof_offset] = curr_high
+            else:
+                print(f"ase.env.tass.humanoid.py._build_pd_action_offset_scale: self._bias_offset, dof_offset {dof_offset} dof_size {dof_size}")
+                curr_low = lim_low[dof_offset:(dof_offset + dof_size)]
+                curr_high = lim_high[dof_offset:(dof_offset + dof_size)]
+                curr_mid = 0.5 * (curr_high + curr_low)
+
+                # extend the action range to be a bit beyond the joint limits so that the motors
+                # don't lose their strength as they approach the joint limits
+                curr_scale = 0.7 * (curr_high - curr_low)
+                curr_low = curr_mid - curr_scale
+                curr_high = curr_mid + curr_scale
+
+                lim_low[dof_offset:(dof_offset + dof_size)] = curr_low
+                lim_high[dof_offset:(dof_offset + dof_size)] = curr_high
+
+        self._pd_action_offset = 0.5 * (lim_high + lim_low)
+        self._pd_action_scale = 0.5 * (lim_high - lim_low)
+        self._pd_action_offset = to_torch(self._pd_action_offset, device=self.device)
+        self._pd_action_scale = to_torch(self._pd_action_scale, device=self.device)
+        
+        print(f"ase.env.tass.humanoid.py._build_pd_action_offset_scale: smpl in [smpl, smplh, smplx]")
+        self._L_knee_dof_idx = self._dof_names.index("L_Knee") * 3 + 1
+        self._R_knee_dof_idx = self._dof_names.index("R_Knee") * 3 + 1
+
+        # ZL: Modified SMPL to give stronger knee
+        self._pd_action_scale[self._L_knee_dof_idx] = 5
+        self._pd_action_scale[self._R_knee_dof_idx] = 5
+        
+        if self._has_smpl_pd_offset:
+            print(f"ase.env.tass.humanoid.py._build_pd_action_offset_scale: self._has_smpl_pd_offset")
+            if self._has_upright_start:
+                print(f"ase.env.tass.humanoid.py._build_pd_action_offset_scale: self._has_upright_start")
+                self._pd_action_offset[self._dof_names.index("L_Shoulder") * 3] = -np.pi / 2
+                self._pd_action_offset[self._dof_names.index("R_Shoulder") * 3] = np.pi / 2
+            else:
+                print(f"ase.env.tass.humanoid.py._build_pd_action_offset_scale: not self._has_upright_start")
+                self._pd_action_offset[self._dof_names.index("L_Shoulder") * 3] = -np.pi / 6
+                self._pd_action_offset[self._dof_names.index("L_Shoulder") * 3 + 2] = -np.pi / 2
+                self._pd_action_offset[self._dof_names.index("R_Shoulder") * 3] = -np.pi / 3
+                self._pd_action_offset[self._dof_names.index("R_Shoulder") * 3 + 2] = np.pi / 2
+        return
+    
+    def _get_humanoid_collision_filter(self):
+        return 0
+
+    def _compute_reward(self, actions):
+        self.rew_buf[:] = compute_humanoid_reward(self.obs_buf)
+        return
+
+    def _compute_reset(self):
+        self.reset_buf[:], self._terminate_buf[:] = compute_humanoid_reset(self.reset_buf, self.progress_buf,
+                                                   self._contact_forces, self._contact_body_ids,
+                                                   self._rigid_body_pos, self.max_episode_length,
+                                                   self._enable_early_termination, self._termination_heights)
+        return
+
+    def _refresh_sim_tensors(self):
+        self.gym.refresh_dof_state_tensor(self.sim)
+        self.gym.refresh_actor_root_state_tensor(self.sim)
+        self.gym.refresh_rigid_body_state_tensor(self.sim)
+
+        self.gym.refresh_force_sensor_tensor(self.sim)
+        self.gym.refresh_dof_force_tensor(self.sim)
+        self.gym.refresh_net_contact_force_tensor(self.sim)
+        return
+
+    def _compute_observations(self, env_ids=None):
+        obs = self._compute_humanoid_obs(env_ids)
+
+        if (env_ids is None):
+            self.obs_buf[:] = obs
+        else:
+            self.obs_buf[env_ids] = obs
+        return
+
+    def _compute_humanoid_obs(self, env_ids=None): 
+        """
+        Compute the humanoid_observation
+        if env_ids is None, (no reset) so use the rigid_body states from the simulators
+        else, for those env_ids, we should use the kinematic_humanoid_rigid_body_states that fetched from the reference motion clip
+        """
+        obs_list = []
+        for i in range(self.num_agents):
+            if (env_ids is None):
+                body_pos = self._rigid_body_pos_list[i]
+                body_rot = self._rigid_body_rot_list[i]
+                body_vel = self._rigid_body_vel_list[i]
+                body_ang_vel = self._rigid_body_ang_vel_list[i]
+            else:
+                body_pos = self._kinematic_humanoid_rigid_body_states_list[i][env_ids, :, 0:3]
+                body_rot = self._kinematic_humanoid_rigid_body_states_list[i][env_ids, :, 3:7]
+                body_vel = self._kinematic_humanoid_rigid_body_states_list[i][env_ids, :, 7:10]
+                body_ang_vel = self._kinematic_humanoid_rigid_body_states_list[i][env_ids, :, 10:13]
+
+            obs = compute_humanoid_observations_max(body_pos, body_rot, body_vel, body_ang_vel, self._local_root_obs,
+                                                    self._root_height_obs)
+            obs_list.append(obs)
+        return obs
+
+    def _reset_actors(self, env_ids):
+        self._humanoid_root_states[env_ids] = self._initial_humanoid_root_states[env_ids]
+        self._dof_pos[env_ids] = self._initial_dof_pos[env_ids]
+        self._dof_vel[env_ids] = self._initial_dof_vel[env_ids]
+        return
+
+    def pre_physics_step(self, actions):
+        self.actions = actions.to(self.device).clone()
+        if (self._pd_control):
+            pd_tar = self._action_to_pd_targets(self.actions)
+            pd_tar_tensor = gymtorch.unwrap_tensor(pd_tar)
+            self.gym.set_dof_position_target_tensor(self.sim, pd_tar_tensor)
+        else:
+            forces = self.actions * self.motor_efforts.unsqueeze(0) * self.power_scale
+            force_tensor = gymtorch.unwrap_tensor(forces)
+            self.gym.set_dof_actuation_force_tensor(self.sim, force_tensor)
+        return
+
+    def post_physics_step(self):
+        self.progress_buf += 1
+
+        self._refresh_sim_tensors()
+        self._compute_observations() # compute observation for all envs
+        self._compute_reward(self.actions)
+        self._compute_reset()
+        
+        self.extras["terminate"] = self._terminate_buf
+
+        # debug viz
+        if self.viewer and self.debug_viz:
+            self._update_debug_viz()
+
+        return
+
+    def render(self, sync_frame_time=False):
+        if self.viewer:
+            self._update_camera()
+
+        super().render(sync_frame_time)
+        return
+
+    def _build_key_body_ids_tensor(self, key_body_names):
+        #print(f"ase.env.tasks.humanoid.py.Humanoid._build_key_body_ids_tensor: key_body_names {key_body_names}")
+        # TODO: Jingwen, difference: 
+        # body_ids = [self._body_names.index(name) for name in key_body_names]
+        # body_ids = to_torch(body_ids, device=self.device, dtype=torch.long)
+
+        env_ptr = self.envs[0]
+        actor_handle = self.humanoid_handles[0]
+        body_ids = []
+
+        for body_name in key_body_names:
+            body_id = self.gym.find_actor_rigid_body_handle(env_ptr, actor_handle, body_name)
+            assert(body_id != -1)
+            body_ids.append(body_id)
+
+        body_ids = to_torch(body_ids, device=self.device, dtype=torch.long)
+        #print(f"ase.env.tasks.humanoid.py.Humanoid._build_key_body_ids_tensor: body_ids {body_ids}")
+        return body_ids
+
+    def _build_contact_body_ids_tensor(self, contact_body_names):
+        env_ptr = self.envs[0]
+        actor_handle = self.humanoid_handles[0]
+        body_ids = []
+
+        for body_name in contact_body_names:
+            body_id = self.gym.find_actor_rigid_body_handle(env_ptr, actor_handle, body_name)
+            assert(body_id != -1)
+            body_ids.append(body_id)
+
+        body_ids = to_torch(body_ids, device=self.device, dtype=torch.long)
+        return body_ids
+
+    def _action_to_pd_targets(self, action):
+        pd_tar = self._pd_action_offset + self._pd_action_scale * action
+        return pd_tar
+
+    def _init_camera(self):
+        self.gym.refresh_actor_root_state_tensor(self.sim)
+        self._cam_prev_char_pos = self._humanoid_root_states_list[0][0, 0:3].cpu().numpy()
+        
+        cam_pos = gymapi.Vec3(self._cam_prev_char_pos[0], 
+                              self._cam_prev_char_pos[1] - 3.0, 
+                              1.0)
+        cam_target = gymapi.Vec3(self._cam_prev_char_pos[0],
+                                 self._cam_prev_char_pos[1],
+                                 1.0)
+        self.gym.viewer_camera_look_at(self.viewer, None, cam_pos, cam_target)
+        return
+
+    def _update_camera(self):
+        self.gym.refresh_actor_root_state_tensor(self.sim)
+        char_root_pos = self._humanoid_root_states_list[0][0, 0:3].cpu().numpy()
+        
+        cam_trans = self.gym.get_viewer_camera_transform(self.viewer, None)
+        cam_pos = np.array([cam_trans.p.x, cam_trans.p.y, cam_trans.p.z])
+        cam_delta = cam_pos - self._cam_prev_char_pos
+
+        new_cam_target = gymapi.Vec3(char_root_pos[0], char_root_pos[1], 1.0)
+        new_cam_pos = gymapi.Vec3(char_root_pos[0] + cam_delta[0], 
+                                  char_root_pos[1] + cam_delta[1], 
+                                  cam_pos[2])
+
+        self.gym.viewer_camera_look_at(self.viewer, None, new_cam_pos, new_cam_target)
+
+        self._cam_prev_char_pos[:] = char_root_pos
+        return
+
+    def _update_debug_viz(self):
+        self.gym.clear_lines(self.viewer)
+        return
+    
+    def _physics_step(self):
+        # self._debug_humanoid_penatration(self)
+        for i in range(self.control_freq_inv):
+            self.render()
+            self.gym.simulate(self.sim)
+        return
+    
+    def _debug_humanoid_penatration(self):
+        """
+        This function check if feet is penetrating the ground and set the feet color to red i`f it is for all environment.
+        """
+        self.set_char_color([0.54, 0.85, 0.2], range(self.num_envs))
+
+        for i in range(self.num_envs):
+            humanoid_handle = self.humanoid_handles[i]
+            env_ptr = self.envs[i]
+            # set regid body color to green
+            # iterate the joints and check if any of them is penetrating the ground
+            for j in range(self.num_bodies):
+                body_pos = self.gym.get_actor_rigid_body_states(env_ptr, humanoid_handle, gymapi.STATE_POS)
+                print(f"body_pos: {body_pos}")
+                if (body_pos[2] < 0.0):
+                    self._assign_color_to_humanoid_joint(env_ptr, humanoid_handle, j, gymapi.Vec3(1.0, 0.0, 0.0))
+        return
+
+
+#####################################################################
+###=========================jit functions=========================###
+#####################################################################
+
+@torch.jit.script
+def dof_to_obs(pose, dof_obs_size, dof_offsets):
+    # type: (Tensor, int, List[int]) -> Tensor
+    joint_obs_size = 6
+    num_joints = len(dof_offsets) - 1
+
+    dof_obs_shape = pose.shape[:-1] + (dof_obs_size,)
+    dof_obs = torch.zeros(dof_obs_shape, device=pose.device)
+    dof_obs_offset = 0
+
+    for j in range(num_joints):
+        dof_offset = dof_offsets[j]
+        dof_size = dof_offsets[j + 1] - dof_offsets[j]
+        joint_pose = pose[:, dof_offset:(dof_offset + dof_size)]
+
+        # assume this is a spherical joint
+        if (dof_size == 3):
+            joint_pose_q = torch_utils.exp_map_to_quat(joint_pose)
+        elif (dof_size == 1):
+            axis = torch.tensor([0.0, 1.0, 0.0], dtype=joint_pose.dtype, device=pose.device)
+            joint_pose_q = quat_from_angle_axis(joint_pose[..., 0], axis)
+        else:
+            joint_pose_q = None
+            assert(False), "Unsupported joint type"
+
+        joint_dof_obs = torch_utils.quat_to_tan_norm(joint_pose_q)
+        dof_obs[:, (j * joint_obs_size):((j + 1) * joint_obs_size)] = joint_dof_obs
+
+    assert((num_joints * joint_obs_size) == dof_obs_size)
+
+    return dof_obs
+
+@torch.jit.script
+def compute_humanoid_observations(root_pos, root_rot, root_vel, root_ang_vel, dof_pos, dof_vel, key_body_pos,
+                                  local_root_obs, root_height_obs, dof_obs_size, dof_offsets):
+    # type: (Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, bool, bool, int, List[int]) -> Tensor
+    root_h = root_pos[:, 2:3]
+    heading_rot = torch_utils.calc_heading_quat_inv(root_rot)
+
+    if (local_root_obs):
+        root_rot_obs = quat_mul(heading_rot, root_rot)
+    else:
+        root_rot_obs = root_rot
+    root_rot_obs = torch_utils.quat_to_tan_norm(root_rot_obs)
+    
+    if (not root_height_obs):
+        root_h_obs = torch.zeros_like(root_h)
+    else:
+        root_h_obs = root_h
+    
+    local_root_vel = quat_rotate(heading_rot, root_vel)
+    local_root_ang_vel = quat_rotate(heading_rot, root_ang_vel)
+
+    root_pos_expand = root_pos.unsqueeze(-2)
+    local_key_body_pos = key_body_pos - root_pos_expand
+    
+    heading_rot_expand = heading_rot.unsqueeze(-2)
+    heading_rot_expand = heading_rot_expand.repeat((1, local_key_body_pos.shape[1], 1))
+    flat_end_pos = local_key_body_pos.view(local_key_body_pos.shape[0] * local_key_body_pos.shape[1], local_key_body_pos.shape[2])
+    flat_heading_rot = heading_rot_expand.view(heading_rot_expand.shape[0] * heading_rot_expand.shape[1], 
+                                               heading_rot_expand.shape[2])
+    local_end_pos = quat_rotate(flat_heading_rot, flat_end_pos)
+    flat_local_key_pos = local_end_pos.view(local_key_body_pos.shape[0], local_key_body_pos.shape[1] * local_key_body_pos.shape[2])
+
+    dof_obs = dof_to_obs(dof_pos, dof_obs_size, dof_offsets)
+
+    obs = torch.cat((root_h_obs, root_rot_obs, local_root_vel, local_root_ang_vel, dof_obs, dof_vel, flat_local_key_pos), dim=-1)
+    return obs
+
+@torch.jit.script
+def compute_humanoid_observations_max(body_pos, body_rot, body_vel, body_ang_vel, local_root_obs, root_height_obs):
+    # type: (Tensor, Tensor, Tensor, Tensor, bool, bool) -> Tensor
+    root_pos = body_pos[:, 0, :]
+    root_rot = body_rot[:, 0, :]
+
+    root_h = root_pos[:, 2:3]
+    heading_rot = torch_utils.calc_heading_quat_inv(root_rot)
+    
+    if (not root_height_obs):
+        root_h_obs = torch.zeros_like(root_h)
+    else:
+        root_h_obs = root_h
+    
+    heading_rot_expand = heading_rot.unsqueeze(-2)
+    heading_rot_expand = heading_rot_expand.repeat((1, body_pos.shape[1], 1))
+    flat_heading_rot = heading_rot_expand.reshape(heading_rot_expand.shape[0] * heading_rot_expand.shape[1], 
+                                               heading_rot_expand.shape[2])
+    
+    root_pos_expand = root_pos.unsqueeze(-2)
+    local_body_pos = body_pos - root_pos_expand
+    flat_local_body_pos = local_body_pos.reshape(local_body_pos.shape[0] * local_body_pos.shape[1], local_body_pos.shape[2])
+    flat_local_body_pos = quat_rotate(flat_heading_rot, flat_local_body_pos)
+    local_body_pos = flat_local_body_pos.reshape(local_body_pos.shape[0], local_body_pos.shape[1] * local_body_pos.shape[2])
+    local_body_pos = local_body_pos[..., 3:] # remove root pos
+
+    flat_body_rot = body_rot.reshape(body_rot.shape[0] * body_rot.shape[1], body_rot.shape[2])
+    flat_local_body_rot = quat_mul(flat_heading_rot, flat_body_rot)
+    flat_local_body_rot_obs = torch_utils.quat_to_tan_norm(flat_local_body_rot)
+    local_body_rot_obs = flat_local_body_rot_obs.reshape(body_rot.shape[0], body_rot.shape[1] * flat_local_body_rot_obs.shape[1])
+    
+    if (local_root_obs):
+        root_rot_obs = torch_utils.quat_to_tan_norm(root_rot)
+        local_body_rot_obs[..., 0:6] = root_rot_obs
+
+    flat_body_vel = body_vel.reshape(body_vel.shape[0] * body_vel.shape[1], body_vel.shape[2])
+    flat_local_body_vel = quat_rotate(flat_heading_rot, flat_body_vel)
+    local_body_vel = flat_local_body_vel.reshape(body_vel.shape[0], body_vel.shape[1] * body_vel.shape[2])
+    
+    flat_body_ang_vel = body_ang_vel.reshape(body_ang_vel.shape[0] * body_ang_vel.shape[1], body_ang_vel.shape[2])
+    flat_local_body_ang_vel = quat_rotate(flat_heading_rot, flat_body_ang_vel)
+    local_body_ang_vel = flat_local_body_ang_vel.reshape(body_ang_vel.shape[0], body_ang_vel.shape[1] * body_ang_vel.shape[2])
+    
+    obs = torch.cat((root_h_obs, local_body_pos, local_body_rot_obs, local_body_vel, local_body_ang_vel), dim=-1)
+    return obs
+
+@torch.jit.script
+def compute_humanoid_reward(obs_buf):
+    # type: (Tensor) -> Tensor
+    reward = torch.ones_like(obs_buf[:, 0])
+    return reward
+
+@torch.jit.script
+def compute_humanoid_reset(reset_buf, progress_buf, contact_buf, contact_body_ids, rigid_body_pos,
+                           max_episode_length, enable_early_termination, termination_heights):
+    # type: (Tensor, Tensor, Tensor, Tensor, Tensor, float, bool, Tensor) -> Tuple[Tensor, Tensor]
+    terminated = torch.zeros_like(reset_buf)
+
+    if (enable_early_termination):
+        masked_contact_buf = contact_buf.clone()
+        masked_contact_buf[:, contact_body_ids, :] = 0
+        fall_contact = torch.any(torch.abs(masked_contact_buf) > 0.1, dim=-1)
+        fall_contact = torch.any(fall_contact, dim=-1)
+
+        body_height = rigid_body_pos[..., 2]
+        fall_height = body_height < termination_heights
+        fall_height[:, contact_body_ids] = False
+        fall_height = torch.any(fall_height, dim=-1)
+
+        has_fallen = torch.logical_and(fall_contact, fall_height)
+
+        # first timestep can sometimes still have nonzero contact forces
+        # so only check after first couple of steps
+        has_fallen *= (progress_buf > 1)
+        terminated = torch.where(has_fallen, torch.ones_like(reset_buf), terminated)
+    
+    reset = torch.where(progress_buf >= max_episode_length - 1, torch.ones_like(reset_buf), terminated)
+
+    return reset, terminated

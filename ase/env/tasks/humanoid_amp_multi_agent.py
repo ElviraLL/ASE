@@ -1,30 +1,6 @@
-# Copyright (c) 2018-2022, NVIDIA Corporation
-# All rights reserved.
-#
-# Redistribution and use in source and binary forms, with or without
-# modification, are permitted provided that the following conditions are met:
-#
-# 1. Redistributions of source code must retain the above copyright notice, this
-#    list of conditions and the following disclaimer.
-#
-# 2. Redistributions in binary form must reproduce the above copyright notice,
-#    this list of conditions and the following disclaimer in the documentation
-#    and/or other materials provided with the distribution.
-#
-# 3. Neither the name of the copyright holder nor the names of its
-#    contributors may be used to endorse or promote products derived from
-#    this software without specific prior written permission.
-#
-# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-# AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-# IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
-# DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
-# FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
-# DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
-# SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
-# CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
-# OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
-# OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+"""
+HumanoidAMP multi-agent class
+"""
 
 from enum import Enum
 import numpy as np
@@ -34,14 +10,14 @@ import os
 from isaacgym import gymapi
 from isaacgym import gymtorch
 
-from env.tasks.humanoid import Humanoid, dof_to_obs
+from env.tasks.humanoid_multi_agent import HumanoidMultiAgent, dof_to_obs
 from utils import gym_util
 from utils.motion_lib import MotionLib
 from isaacgym.torch_utils import *
 
 from utils import torch_utils
 
-class HumanoidAMP(Humanoid):
+class HumanoidAMPMultiAgent(HumanoidMultiAgent):
     class StateInit(Enum):
         Default = 0
         Start = 1
@@ -50,7 +26,7 @@ class HumanoidAMP(Humanoid):
 
     def __init__(self, cfg, sim_params, physics_engine, device_type, device_id, headless):
         state_init = cfg["env"]["stateInit"]
-        self._state_init = HumanoidAMP.StateInit[state_init]
+        self._state_init = HumanoidAMPMultiAgent.StateInit[state_init]
         self._hybrid_init_prob = cfg["env"]["hybridInitProb"]
         self._num_amp_obs_steps = cfg["env"]["numAMPObsSteps"]
         assert(self._num_amp_obs_steps >= 2)
@@ -71,18 +47,21 @@ class HumanoidAMP(Humanoid):
         self.skeleton_ids = cfg['env'].get('skeletonIDs', None) # this should actually in Humanoid.__init__
         self._load_motion(motion_file, skeleton_ids=self.skeleton_ids)
 
-        self._amp_obs_buf = torch.zeros((self.num_envs, self._num_amp_obs_steps, self._num_amp_obs_per_step), device=self.device, dtype=torch.float) #num_env, num_amp_obs_steps, num_amp_obs_per_step: 4096, 10, 169
+        self._amp_obs_buf = torch.zeros((self.num_envs * self.num_agents, self._num_amp_obs_steps, self._num_amp_obs_per_step), device=self.device, dtype=torch.float) #num_env, num_amp_obs_steps, num_amp_obs_per_step: 4096, 10, 169
         self._curr_amp_obs_buf = self._amp_obs_buf[:, 0] # 4096, 1, 169
         self._hist_amp_obs_buf = self._amp_obs_buf[:, 1:] # previous 9 observations (9 time steps) 4096, 9, 169
         
         self._amp_obs_demo_buf = None
 
         # AMP: tensors for enableTrackInitState
-        self._every_env_init_dof_pos = torch.zeros((self.num_envs , self.num_dof), device=self.device, dtype=torch.float)
+        self._every_env_init_dof_pos = torch.zeros((self.num_envs * self.num_agents, self.num_dof), device=self.device, dtype=torch.float)
 
         # AMP: tensors for fixing obs bug
-        self._kinematic_humanoid_rigid_body_states = torch.zeros((self.num_envs, self.num_bodies, 13), device=self.device, dtype=torch.float)
- 
+        self._kinematic_humanoid_rigid_body_states_list = []
+        for i in range(self.num_agents):
+            self._kinematic_humanoid_rigid_body_states_list.append(torch.zeros((self.num_envs, self.num_bodies, 13), device=self.device, dtype=torch.float))
+
+
         # AMP adaptNet
         self._policy_obs_offsets = [self._num_obs] # this variable is used for adaptNet
 
@@ -211,25 +190,29 @@ class HumanoidAMP(Humanoid):
 
     def _reset_actors(self, env_ids):
         # print(f"ase.env.tasks.humanoid_amp.HumanoidAMP._reset_actors: resetting actors...")
-        if (self._state_init == HumanoidAMP.StateInit.Default):
+        if (self._state_init == HumanoidAMPMultiAgent.StateInit.Default):
             self._reset_default(env_ids)
-        elif (self._state_init == HumanoidAMP.StateInit.Start
-              or self._state_init == HumanoidAMP.StateInit.Random):
+        elif (self._state_init == HumanoidAMPMultiAgent.StateInit.Start
+              or self._state_init == HumanoidAMPMultiAgent.StateInit.Random):
             self._reset_ref_state_init(env_ids)
-        elif (self._state_init == HumanoidAMP.StateInit.Hybrid):
+        elif (self._state_init == HumanoidAMPMultiAgent.StateInit.Hybrid):
             self._reset_hybrid_state_init(env_ids)
         else:
             assert(False), "Unsupported state initialization strategy: {:s}".format(str(self._state_init))
         return
     
     def _reset_default(self, env_ids):
-        self._humanoid_root_states[env_ids] = self._initial_humanoid_root_states[env_ids]
-        self._dof_pos[env_ids] = self._initial_dof_pos[env_ids]
-        self._dof_vel[env_ids] = self._initial_dof_vel[env_ids]
+        for i in range(self.num_agents):
+            self._humanoid_root_states_list[i][env_ids] = self._initial_humanoid_root_states_list[i][env_ids]
+            self._dof_pos_list[i][env_ids] = self._initial_dof_pos_list[i][env_ids]
+            self._dof_vel_list[i][env_ids] = self._initial_dof_vel_list[i][env_ids] 
+
         self._reset_default_env_ids = env_ids
 
         if (len(self._reset_default_env_ids) > 0):
-            self._kinematic_humanoid_rigid_body_states[self._reset_default_env_ids] = self._initial_humanoid_rigid_body_states[self._reset_default_env_ids]
+            for i in range(self.num_agents):
+                self._kinematic_humanoid_rigid_body_states_list[i][self._reset_default_env_ids] = self._initial_humanoid_rigid_body_states_list[i][self._reset_default_env_ids]
+            # self._kinematic_humanoid_rigid_body_states[self._reset_default_env_ids] = self._initial_humanoid_rigid_body_states[self._reset_default_env_ids]
 
         return
 
@@ -239,10 +222,10 @@ class HumanoidAMP(Humanoid):
         num_envs = env_ids.shape[0]
         motion_ids = self._motion_lib.sample_motions(num_envs)
         
-        if (self._state_init == HumanoidAMP.StateInit.Random
-            or self._state_init == HumanoidAMP.StateInit.Hybrid):
+        if (self._state_init == HumanoidAMPMultiAgent.StateInit.Random
+            or self._state_init == HumanoidAMPMultiAgent.StateInit.Hybrid):
             motion_times = self._motion_lib.sample_time(motion_ids)
-        elif (self._state_init == HumanoidAMP.StateInit.Start):
+        elif (self._state_init == HumanoidAMPMultiAgent.StateInit.Start):
             motion_times = torch.zeros(num_envs, device=self.device)
         else:
             assert(False), "Unsupported state initialization strategy: {:s}".format(str(self._state_init))
@@ -323,13 +306,14 @@ class HumanoidAMP(Humanoid):
         return
     
     def _set_env_state(self, env_ids, root_pos, root_rot, dof_pos, root_vel, root_ang_vel, dof_vel): # set humanoid_root_states, dof_pos, dof_vel (only as instance data)
-        self._humanoid_root_states[env_ids, 0:3] = root_pos
-        self._humanoid_root_states[env_ids, 3:7] = root_rot
-        self._humanoid_root_states[env_ids, 7:10] = root_vel
-        self._humanoid_root_states[env_ids, 10:13] = root_ang_vel
-        
-        self._dof_pos[env_ids] = dof_pos
-        self._dof_vel[env_ids] = dof_vel
+        for i in range(self.num_agents):
+            self._humanoid_root_states_list[i][env_ids, 0:3] = root_pos[i]
+            self._humanoid_root_states_list[i][env_ids, 3:7] = root_rot[i]
+            self._humanoid_root_states_list[i][env_ids, 7:10] = root_vel[i]
+            self._humanoid_root_states_list[i][env_ids, 10:13] = root_ang_vel[i]
+            
+            self._dof_pos_list[i][env_ids] = dof_pos[i]
+            self._dof_vel_list[i][env_ids] = dof_vel[i]
         return
 
     def _update_hist_amp_obs(self, env_ids=None):
@@ -342,31 +326,33 @@ class HumanoidAMP(Humanoid):
         return
     
     def _compute_amp_observations(self, env_ids=None):
-
         # print("motion_label: ", self._every_env_motion_label[:4].nonzero()[:, 1])
+        for i in range(self.num_agents):
+            if (env_ids is None):
+                key_body_pos = self._rigid_body_pos_list[i][:, self._key_body_ids, :]
+                amp_obs = build_amp_observations(self._rigid_body_pos_list[i][:, 0, :],
+                                                                self._rigid_body_rot_list[i][:, 0, :],
+                                                                self._rigid_body_vel_list[i][:, 0, :],
+                                                                self._rigid_body_ang_vel_list[i][:, 0, :],
+                                                                self._dof_pos_list[i], self._dof_vel_list[i], key_body_pos,
+                                                                self._local_root_obs, self._root_height_obs, 
+                                                                self._dof_obs_size, self._dof_offsets)
 
-        if (env_ids is None):
-            key_body_pos = self._rigid_body_pos[:, self._key_body_ids, :]
-            amp_obs = build_amp_observations(self._rigid_body_pos[:, 0, :],
-                                                               self._rigid_body_rot[:, 0, :],
-                                                               self._rigid_body_vel[:, 0, :],
-                                                               self._rigid_body_ang_vel[:, 0, :],
-                                                               self._dof_pos, self._dof_vel, key_body_pos,
-                                                               self._local_root_obs, self._root_height_obs, 
-                                                               self._dof_obs_size, self._dof_offsets)
+            else:
+                if len(env_ids) == 0:
+                    return
+                kinematic_rigid_body_pos = self._kinematic_humanoid_rigid_body_states_list[i][:, :, 0:3]
+                key_body_pos = kinematic_rigid_body_pos[:, self._key_body_ids, :]
+                amp_obs = build_amp_observations(self._kinematic_humanoid_rigid_body_states_list[i][env_ids, 0, 0:3],
+                                                self._kinematic_humanoid_rigid_body_states_list[i][env_ids, 0, 3:7],
+                                                self._kinematic_humanoid_rigid_body_states_list[i][env_ids, 0, 7:10],
+                                                self._kinematic_humanoid_rigid_body_states_list[i][env_ids, 0, 10:13],
+                                                self._dof_pos_list[i][env_ids], self._dof_vel_list[i][env_ids], key_body_pos[env_ids],
+                                                self._local_root_obs, self._root_height_obs, 
+                                                self._dof_obs_size, self._dof_offsets)
 
-        else:
-            kinematic_rigid_body_pos = self._kinematic_humanoid_rigid_body_states[:, :, 0:3]
-            key_body_pos = kinematic_rigid_body_pos[:, self._key_body_ids, :]
-            amp_obs = build_amp_observations(self._kinematic_humanoid_rigid_body_states[env_ids, 0, 0:3],
-                                            self._kinematic_humanoid_rigid_body_states[env_ids, 0, 3:7],
-                                            self._kinematic_humanoid_rigid_body_states[env_ids, 0, 7:10],
-                                            self._kinematic_humanoid_rigid_body_states[env_ids, 0, 10:13],
-                                            self._dof_pos[env_ids], self._dof_vel[env_ids], key_body_pos[env_ids],
-                                            self._local_root_obs, self._root_height_obs, 
-                                            self._dof_obs_size, self._dof_offsets)
-
-        self._curr_amp_obs_buf[env_ids] = amp_obs
+            # self._curr_amp_obs_buf[env_ids] = amp_obs
+            self._curr_amp_obs_buf[i * self.num_envs : (i + 1) * self.num_envs] = amp_obs
         return
 
 
