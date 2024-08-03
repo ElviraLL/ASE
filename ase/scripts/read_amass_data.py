@@ -1,50 +1,55 @@
-import tqdm
+import argparse
+from pathlib import Path
+import joblib
+from tqdm import tqdm
 import os
-import os.path as osp
 import numpy as np
 
 all_sequences = [
     "ACCAD",
     "BMLmovi",
-    "BioMotionLab_NTroje",
-    "CMU",
-    "DFaust_67",
-    "EKUT",
-    "Eyes_Japan_Dataset",
-    "HumanEva",
-    "KIT",
-    "MPI_HDM05",
-    "MPI_Limits",
-    "MPI_mosh",
-    "SFU",
-    "SSM_synced",
-    "TCD_handMocap",
-    "TotalCapture",
-    "Transitions_mocap",
-    "BMLhandball",
-    "DanceDB"
+    # "BioMotionLab_NTroje",
+    # "CMU",
+    # "DFaust_67",
+    # "EKUT",
+    # "Eyes_Japan_Dataset",
+    # "HumanEva",
+    # "KIT",
+    # "MPI_HDM05",
+    # "MPI_Limits",
+    # "MPI_mosh",
+    # "SFU",
+    # "SSM_synced",
+    # "TCD_handMocap",
+    # "TotalCapture",
+    # "Transitions_mocap",
+    # "BMLhandball",
+    # "DanceDB"
 ]
 
-def read_data(folder, sequences):
+def process_data(folder, sequences, output_dir):
     # sequences = [osp.join(folder, x) for x in sorted(os.listdir(folder)) if osp.isdir(osp.join(folder, x))]
 
     if sequences == "all":
         sequences = all_sequences
 
-    db = {}
     print(folder)
     for seq_name in sequences:
         print(f"Reading {seq_name} sequence...")
-        seq_folder = osp.join(folder, seq_name)
+        compressed_file = os.path.join(folder, f"{seq_name}.tar.bz2")
+        seq_folder = os.path.join(folder, seq_name)
+        
+        # extract the sequence folder
+        if os.path.exists(compressed_file) and not os.path.exists(seq_folder):
+            print(f"Extracting {compressed_file}...")
+            os.system(f"tar -xjf {compressed_file} -C {folder}")
+        # Note that the extracted folder contains subfolders for subjects, and each of them contains npz files for actions
 
-        datas = read_single_sequence(seq_folder, seq_name)
-        db.update(datas)
-        print(seq_name, "number of seqs", len(datas))
-
-    return db
+        datas = process_single_sequence(seq_folder, seq_name, output_dir)
 
 
-def read_single_sequence(folder, seq_name):
+
+def process_single_sequence(folder, seq_name, output_dir):
     """
     Read a sequence of data using seq_name from AMASS for example: ACCAD or CMU, each sequence contains multiple motion clips
     Args:
@@ -53,31 +58,59 @@ def read_single_sequence(folder, seq_name):
     Returns:
         datas
     """
-    subjects = os.listdir(folder) # list folder, this should returns all the sub-folders
+    # list all files in the input folder, should be a license.txt file and the motion folder
+    subjects = os.listdir(folder) 
 
-    datas = {}
 
     for subject in tqdm(subjects):
-        if not osp.isdir(osp.join(folder, subject)):
+        if not os.path.isdir(os.path.join(folder, subject)): # skip the license file
             continue
         actions = [
-            x for x in os.listdir(osp.join(folder, subject)) if x.endswith(".npz") 
+            x for x in os.listdir(os.path.join(folder, subject)) if x.endswith(".npz") 
         ] # list all the motion files end with npz
 
         for action in actions:
-            fname = osp.join(folder, subject, action)
-
+            fname = os.path.join(folder, subject, action)
+            
+            # skip the npz files that end with shape.npz, maybe it is only the shape info
             if fname.endswith("shape.npz"):
+                print(f"Skipping the shape file {fname}")
                 continue
 
             data = dict(np.load(fname))
-            # data['poses'] = pose = data['poses'][:, joints_to_use]
 
-            # shape = np.repeat(data['betas'][:10][np.newaxis], pose.shape[0], axis=0)
-            # theta = np.concatenate([pose,shape], axis=1)
             vid_name = f"{seq_name}_{subject}_{action[:-4]}"
+            
+            # convert the data to MotionLib format
+            motionlib_data = process_single_motion_clip(data)
 
-            datas[vid_name] = data
-            # thetas.append(theta)
+            # save the data to the output folder
+            out_file = os.path.join(output_dir, f"{vid_name}.npz")
 
-    return datas
+
+
+
+def process_single_motion_clip(data):
+    """
+    Convert the AMASS data to MotionLib format
+    Args:
+        data: (dict) the AMASS data that contains ['trans', 'gender', 'mocap_frames', 'betas', 'dmpls', 'poses']
+    Returns:
+        motionlib_data: (dict) the data in MotionLib format
+    """
+    motionlib_data = {}
+
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--data_dir", type=str, help="raw data directory, should be a folder contains all unzipped AMASS data")
+    parser.add_argument("--output_dir", type=str, help="output directory to save the processed data")
+    parser.add_argument("--sequences", type=str, nargs="+", help='which AMASS sequences to use', default='all')
+
+    args = parser.parse_args()
+    out_path = Path(args.output_dir)
+    out_path.mkdir(exist_ok=True, parents=True)
+
+    process_data(folder=args.data_dir, sequences=args.sequences, output_dir=args.output_dir)
+    
