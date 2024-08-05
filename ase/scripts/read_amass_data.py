@@ -5,9 +5,27 @@ from tqdm import tqdm
 import os
 import numpy as np
 
+joint_names_19 = [
+    'Pelvis', 
+    'L_Hip', 'L_Knee', 'L_Ankle',
+    'R_Hip', 'R_Knee', 'R_Ankle',
+    'Torso', 'Spine', 'Chest', 'Neck',
+    'L_Thorax', 'L_Shoulder', 'L_Elbow', 'L_Wrist',
+    'R_Thorax', 'R_Shoulder', 'R_Elbow', 'R_Wrist',
+] 
+
+joint_names_24 = [
+    'Pelvis',                                                         # 0
+    'L_Hip', 'L_Knee', 'L_Ankle', 'L_Toe',                            # 1, 2, 3, 4                        
+    'R_Hip', 'R_Knee', 'R_Ankle', 'R_Toe',                            # 5, 6, 7, 8
+    'Torso', 'Spine', 'Chest', 'Neck', 'Head',                        # 9, 10, 11, 12, 13
+    'L_Thorax', 'L_Shoulder', 'L_Elbow', 'L_Wrist', 'L_Hand',         # 14, 15, 16, 17, 18
+    'R_Thorax', 'R_Shoulder', 'R_Elbow', 'R_Wrist', 'R_Hand',         # 19, 20, 21, 22, 23          
+]
+
 all_sequences = [
     "ACCAD",
-    "BMLmovi",
+    # "BMLmovi",
     # "BioMotionLab_NTroje",
     # "CMU",
     # "DFaust_67",
@@ -82,7 +100,7 @@ def process_single_sequence(folder, seq_name, output_dir):
             vid_name = f"{seq_name}_{subject}_{action[:-4]}"
             
             # convert the data to MotionLib format
-            motionlib_data = process_single_motion_clip(data)
+            # motionlib_data = process_single_motion_clip(data)
 
             # save the data to the output folder
             out_file = os.path.join(output_dir, f"{vid_name}.npz")
