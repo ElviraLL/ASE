@@ -1,0 +1,4 @@
+motions:
+  loco:
+    - file: /home/jing/Documents/projs/amass/pkls/0-ACCAD_Female1Walking_c3d_B3 - walk1_poses.pkl
+      weight: 1.0

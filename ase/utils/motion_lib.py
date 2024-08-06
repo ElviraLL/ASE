@@ -29,9 +29,13 @@
 import numpy as np
 import os
 import yaml
+import json
+import joblib
+from collections import OrderedDict
 
-from poselib.poselib.skeleton.skeleton3d import SkeletonMotion
+from poselib.poselib.skeleton.skeleton3d import SkeletonMotion, SkeletonState, SkeletonTree
 from poselib.poselib.core.rotation3d import *
+from poselib.poselib.core.backend.abstract import json_numpy_obj_hook
 from isaacgym.torch_utils import *
 
 from utils import torch_utils
@@ -286,7 +290,12 @@ class MotionLib():
         for f in range(num_motion_files):
             curr_file = motion_files[f]
             print("Loading {:d}/{:d} motion files: {:s}".format(f + 1, num_motion_files, curr_file))
-            curr_motion = SkeletonMotion.from_file(curr_file, skeleton_ids=self.skeleton_ids)
+            if curr_file.endswith(".pkl"):
+                curr_motion = self._load_motion_from_pkl_file(curr_file)
+            else:
+                curr_motion = SkeletonMotion.from_file(curr_file, skeleton_ids=self.skeleton_ids)
+
+
 
             motion_fps = curr_motion.fps
             curr_dt = 1.0 / motion_fps
@@ -343,6 +352,76 @@ class MotionLib():
             print("Loaded {:d} motions with a total length of {:.3f}s.".format(num_motions, total_len))
 
         return
+    
+    def _load_motion_from_pkl_file(self, curr_file):
+        """
+        Load motion from file
+        Args:
+            curr_file: (str) the file path
+        Returns:
+            curr_motion: (SkeletonMotion) the motion object
+        """
+        # TODO: rewrite this to only load pkls
+        if curr_file.endswith(".json"):
+            with open(curr_file, "r") as f:
+                d = json.load(f, object_hook=json_numpy_obj_hook)
+        elif curr_file.endswith(".npy"):
+            d = np.load(curr_file, allow_pickle=True).item()
+        elif curr_file.endswith(".pkl"):
+            d = joblib.load(curr_file)
+        else:
+            assert False, "failed to load {} from {}".format(SkeletonMotion.__name__, curr_file)
+        # assert d["__name__"] == SkeletonMotion.__name__, "the file belongs to {}, not {}".format(
+        #     d["__name__"], SkeletonMotion.__name__
+        # )
+        skeleton_tree = SkeletonTree.from_mjcf("./ase/data/assets/mjcf/smpl_humanoid_v2.xml") # the original 24 bone skeletontree TODO: don't use hard coded values
+        # skeleton_tree = self._update_skeleton_tree(d['skeleton_tree'], self.skeleton_ids)
+        self._update_motion_data_with_new_skeleton(d, self.skeleton_ids, skeleton_tree)
+        trans = d['root_trans_offset']
+        pose_quat_global = torch.from_numpy(d['pose_quat_global'])
+        sk_state = SkeletonState.from_rotation_and_root_translation(skeleton_tree, pose_quat_global, trans, is_local=False)
+        curr_motion = SkeletonMotion.from_skeleton_state(sk_state, d.get("fps", 30))
+        return curr_motion
+    
+    def _update_skeleton_tree(self, skeleton_tree, selected_ids):
+        if selected_ids is not None and len(selected_ids) < len(skeleton_tree['node_names']):
+            original_node_names = skeleton_tree["node_names"]
+            original_parent_indices = skeleton_tree["parent_indices"]["arr"]
+
+            old_to_new_index = {old_idx: new_idx for new_idx, old_idx in enumerate(selected_ids)}
+
+            new_node_names = [original_node_names[idx] for idx in selected_ids]
+            new_parent_indices = []
+            def find_valid_parent(idx):
+                original_parent_idx = original_parent_indices[idx]
+                # Check if the parent is in the selected skeleton_ids
+                while original_parent_idx not in selected_ids and original_parent_idx != -1:
+                    original_parent_idx = original_parent_indices[original_parent_idx]
+                # Return the new index if valid parent found, else -1
+                return old_to_new_index.get(original_parent_idx, -1)
+            
+            for idx in selected_ids:
+                new_parent_idx = find_valid_parent(idx)
+                new_parent_indices.append(new_parent_idx)
+
+            updated_skelton_tree = OrderedDict()
+            updated_skelton_tree["node_names"] = new_node_names
+            updated_skelton_tree["parent_indices"] = {"arr": np.array(new_parent_indices), 'context': {'dtype': 'int64'}}
+            updated_skelton_tree['local_translation'] = {'arr': skeleton_tree['local_translation']['arr'][selected_ids], 'context': {'dtype': 'float32'}}
+        return updated_skelton_tree
+
+
+    def _update_motion_data_with_new_skeleton(self, d, selected_ids, skeleton_tree):
+        """
+        Update the motion series, with new skeleton
+        Technically, we need to recalculate the new positions by retunning FK, and update the local rotations
+        we can simply select the corresponding motion data with their selected skeleton ids here
+        """
+        # TODO: Implement the FK if needed
+        if selected_ids is not None and len(selected_ids) < len(skeleton_tree.node_names):
+            d['pose_quat_global'] = d['pose_quat_global'][:, selected_ids]
+            d['pose_aa'] = d['pose_aa'][:, selected_ids]
+
 
     def _fetch_motion_files(self, motion_file, skill=None):
         ext = os.path.splitext(motion_file)[1]

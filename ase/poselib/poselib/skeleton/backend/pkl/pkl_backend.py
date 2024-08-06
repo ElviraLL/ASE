@@ -16,7 +16,7 @@ from pathlib import Path
 
 ROOT_PATH = rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True)
 
-from ase.poselib.poselib.skeleton.skeleton3d import SkeletonMotion, SkeletonTree
+from ase.poselib.poselib.skeleton.skeleton3d import SkeletonMotion, SkeletonTree, SkeletonState
 from ase.poselib.poselib.core.tensor_utils import tensor_to_dict, TensorUtils
 
 def rewrite_pkl(pkl_path, root_dir):
@@ -31,17 +31,17 @@ def rewrite_pkl(pkl_path, root_dir):
         
 
 
-def create_SekeltonMotion_from_dict(motion_dict: OrderedDict, skeleton_tree: SkeletonTree, *args, **kwargs):
-        rot = TensorUtils.from_dict(motion_dict["rotation"], *args, **kwargs)
-        rt = TensorUtils.from_dict(motion_dict["root_translation"], *args, **kwargs)
-        vel = SkeletonMotion._compute_velocity(rot, 1 / motion_dict["fps"])
-        avel = SkeletonMotion._compute_angular_velocity(rot, 1 / motion_dict["fps"])
-        return SkeletonMotion(
-            SkeletonMotion._to_state_vector(rot, rt, vel, avel),
-            skeleton_tree=skeleton_tree,
-            is_local=True,
-            fps=motion_dict["fps"],
-        )
+# def create_SekeltonMotion_from_dict(motion_dict: OrderedDict, skeleton_tree: SkeletonTree, *args, **kwargs):
+#         rot = TensorUtils.from_dict(motion_dict["rotation"], *args, **kwargs)
+#         rt = TensorUtils.from_dict(motion_dict["root_translation"], *args, **kwargs)
+#         vel = SkeletonMotion._compute_velocity(rot, 1 / motion_dict["fps"])
+#         avel = SkeletonMotion._compute_angular_velocity(rot, 1 / motion_dict["fps"])
+#         return SkeletonMotion(
+#             SkeletonMotion._to_state_vector(rot, rt, vel, avel),
+#             skeleton_tree=skeleton_tree,
+#             is_local=True,
+#             fps=motion_dict["fps"],
+#         )
 
 
 def pkl_to_npy(pkl_path, root_dir):
@@ -57,14 +57,17 @@ def pkl_to_npy(pkl_path, root_dir):
     #     else:
     #         print(f" {key}: {value}")
 
-    motion_dict = OrderedDict(
-        [
-            ("rotation", tensor_to_dict(torch.from_numpy(clip["pose_quat"]))),
-            ("root_translation", tensor_to_dict(torch.from_numpy(clip["trans_orig"]))),
-            ("fps", clip["fps"]),
-        ]
-    )
-    motion = create_SekeltonMotion_from_dict(motion_dict, skeleton_tree)
+    # motion_dict = OrderedDict(
+    #     [
+    #         ("rotation", tensor_to_dict(torch.from_numpy(clip["pose_quat"]))),
+    #         ("root_translation", tensor_to_dict(torch.from_numpy(clip["trans_orig"]))),
+    #         ("fps", clip["fps"]),
+    #     ]
+    # )
+    pose_quat_global = torch.from_numpy(clip['pose_quat_global'])
+    trans =clip['root_trans_offset']
+    sk_state = SkeletonState.from_rotation_and_root_translation(skeleton_tree, pose_quat_global, trans, is_local=False)
+    motion = SkeletonMotion.from_skeleton_state(sk_state, clip.get("fps", 30))
     # remove extra space in the file name
     file_name = pkl_path.split("/")[-1].replace(" ", "").replace("(", "-").replace(")","-").replace("_", "-")
     motion.to_file(f"{root_dir}/{file_name.replace('.pkl', '.npy')}")
