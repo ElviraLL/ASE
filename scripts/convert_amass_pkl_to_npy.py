@@ -17,7 +17,7 @@ from pathlib import Path
 ROOT_PATH = rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True)
 
 from ase.poselib.poselib.skeleton.skeleton3d import SkeletonMotion, SkeletonTree, SkeletonState
-from ase.poselib.poselib.core.tensor_utils import tensor_to_dict, TensorUtils
+from ase.poselib.poselib.core.tensor_utils import TensorUtils
 
 def rewrite_pkl(pkl_path, root_dir):
     """
@@ -75,21 +75,18 @@ def pkl_to_npy(pkl_path, root_dir):
 
 
 if __name__ == "__main__":
-
-    # step 1: read the over_all big pkl and rewrite them into smaller pkl for each clip
     pkl_path = Path("/home/jing/Documents/projs/amass/all_data/amass_isaac_im_train_take6_upright_slim.pkl")
     pkl_folder = Path("/home/jing/Documents/projs/amass/pkls")
-    # pkl_folder.mkdir(exist_ok=True)
 
+    # step 1: read the over_all big pkl and rewrite them into smaller pkl for each clip
+    # pkl_folder.mkdir(exist_ok=True)
     # rewrite_pkl(pkl_path, pkl_folder)
 
     # step 2: rewrite each pkl into npy
-
     npy_folder = Path("/home/jing/Documents/projs/amass/npys")
     for pkl_path in tqdm(os.listdir(pkl_folder), total=len(os.listdir(pkl_folder))):
-        if "ACCAD" in pkl_path and "Female1Walking" in pkl_path:
-            pkl_to_npy(f"{pkl_folder}/{pkl_path}", npy_folder)
-            print(f"Finish converting {pkl_path} to .npy file.")
+        pkl_to_npy(f"{pkl_folder}/{pkl_path}", npy_folder)
+        print(f"Finish converting {pkl_path} to .npy file.")
     
     
     
