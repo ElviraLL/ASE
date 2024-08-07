@@ -1,0 +1,25 @@
+motions:
+
+  style_stand:
+    - file: ../motions/style_stand/ACCAD+__+Female1General_c3d+__+A3_-_Swing_t2_stageii/smpl_humanoid_v2/ref_motion.npy
+      weight: 1.0
+    - file: ../motions/style_stand/ACCAD+__+Female1General_c3d+__+A6-_lift_box_t2_stageii/smpl_humanoid_v2/ref_motion.npy
+      weight: 1.0
+    - file: ../motions/style_stand/BMLmovi+__+Subject_1_F_MoSh+__+Subject_1_F_2_stageii/smpl_humanoid_v2/ref_motion.npy
+      weight: 1.0
+    - file: ../motions/style_stand/BMLmovi+__+Subject_1_F_MoSh+__+Subject_1_F_3_stageii/smpl_humanoid_v2/ref_motion.npy
+      weight: 1.0
+    - file: ../motions/style_stand/BMLmovi+__+Subject_1_F_MoSh+__+Subject_1_F_5_stageii/smpl_humanoid_v2/ref_motion.npy
+      weight: 1.0
+
+  style_walk_forwards:
+    - file: ../motions/style_walk_forwards/ACCAD+__+Female1General_c3d+__+A15_-_skip_to_stand_stageii/smpl_humanoid_v2/ref_motion.npy
+      weight: 1.0
+    - file: ../motions/style_walk_forwards/ACCAD+__+Female1Walking_c3d+__+B3_-_walk1_stageii/smpl_humanoid_v2/ref_motion.npy
+      weight: 1.0
+    - file: ../motions/style_walk_forwards/ACCAD+__+Female1Walking_c3d+__+B20_-_walk_with_box_stageii/smpl_humanoid_v2/ref_motion.npy
+      weight: 1.0
+    - file: ../motions/style_walk_forwards/SFU+__+0005+__+0005_Jogging001_stageii/smpl_humanoid_v2/ref_motion.npy
+      weight: 1.0
+    - file: ../motions/style_walk_forwards/SFU+__+0018+__+0018_Catwalk001_stageii/smpl_humanoid_v2/ref_motion.npy
+      weight: 1.0

@@ -1,0 +1,8 @@
+motions:
+  loco:
+    - file: ../motions/style_walk_forwards/ACCAD+__+Female1Walking_c3d+__+B3_-_walk1_stageii/smpl_humanoid_v2/ref_motion.npy
+      weight: 1.0
+      character_color: [0.0, 0.0, 1.0]
+    - file: /home/jing/Documents/projs/amass/npys/0-ACCAD-Female1Walking-c3d-B3-walk1-poses.npy
+      weight: 1.0
+      character_color: [0.0, 1.0, 0.0]

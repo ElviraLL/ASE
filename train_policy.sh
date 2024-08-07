@@ -1,2 +1,2 @@
 #!/bin/bash
-python ase/run.py --task HumanoidAMP --cfg_env ase/data/cfg/humanoid_amp_smpl.yaml --cfg_train ase/data/cfg/train/rlg/amp_humanoid_im.yaml --motion_file ase/data/dataset_multi_style/cfgs/single_clip_walk.yaml
+python ase/run.py --task HumanoidAMP --cfg_env ase/data/cfg/humanoid_amp_smpl.yaml --cfg_train ase/data/cfg/train/rlg/amp_humanoid_im.yaml --motion_file ase/data/dataset_multi_style/cfgs/ours.yaml 

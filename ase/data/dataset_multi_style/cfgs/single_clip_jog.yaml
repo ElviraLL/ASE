@@ -1,0 +1,4 @@
+motions:
+  loco:
+    - file: ../motions/style_walk_forwards/SFU+__+0005+__+0005_Jogging001_stageii/smpl_humanoid_v2/ref_motion.npy
+      weight: 1.0

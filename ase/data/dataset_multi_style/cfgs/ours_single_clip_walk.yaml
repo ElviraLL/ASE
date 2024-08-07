@@ -1,0 +1,4 @@
+motions:
+  loco:
+    - file: /home/jing/Documents/projs/amass/npys/0-ACCAD-Female1Walking-c3d-B3-walk1-poses.npy
+      weight: 1.0

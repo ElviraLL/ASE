@@ -132,3 +132,35 @@ https://actorcore.reallusion.com/motion/pack/studio-mocap-sword-and-shield-moves
 
 
 If you want to retarget new motion clips to the character, you can take a look at an example retargeting script in `ase/poselib/retarget_motion.py`.
+
+&nbsp;
+
+&nbsp;
+### AMASS DATASET
+Use the following script to download sample data.
+```
+bash download_data.sh
+```
+Download SMPL paramters from SMPL. Put them in the data/smpl folder, unzip them into 'data/smpl' folder. Please download the v1.1.0 version, which contains the neutral humanoid. Rename the files basicmodel_neutral_lbs_10_207_0_v1.1.0, basicmodel_m_lbs_10_207_0_v1.1.0.pkl, basicmodel_f_lbs_10_207_0_v1.1.0.pkl to SMPL_NEUTRAL.pkl, SMPL_MALE.pkl and SMPL_FEMALE.pkl. Rename The file structure should look like this:
+```
+
+|-- data
+    |-- smpl
+        |-- SMPL_FEMALE.pkl
+        |-- SMPL_NEUTRAL.pkl
+        |-- SMPL_MALE.pkl
+
+```
+For processing the AMASS, first, download the AMASS dataset from AMASS. Then, run the following script on the unzipped data:
+
+run 
+```
+python scripts/convert_amass_data.py
+```
+to process amass data into one pkl file
+then run
+```
+python scripts/convert_amass_pkl_to_npy.py
+```
+to write each clip into a `.npy` file
+Then you can write `.yaml` file in `ase/data/dataset_multi_style/cfgs` and use that config file for training
