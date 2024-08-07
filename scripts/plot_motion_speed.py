@@ -2,9 +2,14 @@
 import numpy as np
 from matplotlib import pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
+import sys
+import os
+sys.path.append(os.getcwd())
+sys.path.append(os.path.join(os.getcwd(), 'ase'))
+
 
 from isaacgym.torch_utils import *
-from utils.motion_lib import MotionLib
+from ase.utils.motion_lib import MotionLib
 
 body_names = [
                 'Pelvis',
