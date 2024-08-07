@@ -134,7 +134,7 @@ https://actorcore.reallusion.com/motion/pack/studio-mocap-sword-and-shield-moves
 If you want to retarget new motion clips to the character, you can take a look at an example retargeting script in `ase/poselib/retarget_motion.py`.
 
 # AMASS DATASET
-Use the following script to download trained models and sample data.
+Use the following script to download sample data.
 ```
 bash download_data.sh
 ```
