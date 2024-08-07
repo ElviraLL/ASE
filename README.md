@@ -133,7 +133,8 @@ https://actorcore.reallusion.com/motion/pack/studio-mocap-sword-and-shield-moves
 
 If you want to retarget new motion clips to the character, you can take a look at an example retargeting script in `ase/poselib/retarget_motion.py`.
 
-# AMASS DATASET
+
+### AMASS DATASET
 Use the following script to download sample data.
 ```
 bash download_data.sh
@@ -160,3 +161,4 @@ then run
 python scripts/convert_amass_pkl_to_npy.py
 ```
 to write each clip into a `.npy` file
+Then you can write `.yaml` file in `ase/data/dataset_multi_style/cfgs` and use that config file for training
