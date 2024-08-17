@@ -295,6 +295,19 @@ class MotionLib():
             else:
                 curr_motion = SkeletonMotion.from_file(curr_file, skeleton_ids=self.skeleton_ids)
 
+            # # increase 2 on z axis for global translation
+            # curr_motion.global_translation[:, :, 2] += 2.0 # shape (n, 19, 3)
+            # # curr_motion.global_translation[:, :, 2] = -curr_motion.global_translation[:, 0, 2]
+            # # global_root_rotation [N, 4], rotate 90 degrees around x axis
+            # rot_angle = torch.tensor([np.pi/2])
+            # rot_theta = torch.zeros(3)
+            # rot_theta[0] = 1.0
+            # n_frames = curr_motion.global_root_rotation.shape[0]
+            # curr_motion.global_root_rotation[:] = quat_mul(quat_from_angle_axis(rot_angle, rot_theta).repeat(n_frames, 1), curr_motion.global_root_rotation)[:]
+            # # assign that value to global rotations and local rotations
+            # curr_motion.global_rotation[:, 0, ...] = curr_motion.global_root_rotation
+            # curr_motion.local_rotation[:, 0, ...] =curr_motion.global_root_rotation
+            # curr_motion.rotation[:, 0, ...] = curr_motion.global_root_rotation
 
 
             motion_fps = curr_motion.fps

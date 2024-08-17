@@ -165,7 +165,7 @@ class Serializable:
             d['global_velocity']['arr'] = d['global_velocity']['arr'][:, skeleton_ids]
             d['global_angular_velocity']['arr'] = d['global_angular_velocity']['arr'][:, skeleton_ids]
             d['skeleton_tree'] = update_skeleton_tree(d['skeleton_tree'], skeleton_ids)
-
+        
         return cls.from_dict(d, *args, **kwargs)
 
     def to_file(self, path: str) -> None:

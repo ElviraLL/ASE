@@ -411,12 +411,14 @@ class BaseTask():
 
     def _physics_step(self):
         for i in range(self.control_freq_inv):
+            # TODO: check penetration and change color of feet
             self.render()
             self.gym.simulate(self.sim)
         return
 
     def post_physics_step(self):
         raise NotImplementedError
+    
 
 
 def get_attr_val_from_sample(sample, offset, prop, attr):

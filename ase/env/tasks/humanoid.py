@@ -805,22 +805,31 @@ class Humanoid(BaseTask):
             self.gym.simulate(self.sim)
         return
     
-    def _debug_humanoid_penatration(self):
-        """
-        This function check if feet is penetrating the ground and set the feet color to red i`f it is for all environment.
-        """
-        self.set_char_color([0.54, 0.85, 0.2], range(self.num_envs))
-
-        for i in range(self.num_envs):
-            humanoid_handle = self.humanoid_handles[i]
-            env_ptr = self.envs[i]
-            # set regid body color to green
-            # iterate the joints and check if any of them is penetrating the ground
+    def set_char_color(self, col, env_ids):
+        for env_id in env_ids:
+            env_ptr = self.envs[env_id]
+            handle = self.humanoid_handles[env_id]
             for j in range(self.num_bodies):
-                body_pos = self.gym.get_actor_rigid_body_states(env_ptr, humanoid_handle, gymapi.STATE_POS)
-                print(f"body_pos: {body_pos}")
-                if (body_pos[2] < 0.0):
-                    self._assign_color_to_humanoid_joint(env_ptr, humanoid_handle, j, gymapi.Vec3(1.0, 0.0, 0.0))
+                self.gym.set_rigid_body_color(env_ptr, handle, j, gymapi.MESH_VISUAL, gymapi.Vec3(col[0], col[1], col[2]))
+        return
+
+    def visualize_feet_penetration(self):
+        """
+        Iterate all the actors in all the environment, check if their feet are penetrating the ground, if so, change the color of the feet to red
+        """
+        # First reset the color to original
+        self.set_char_color([0.54, 0.85, 0.2], range(self.num_envs))
+        for i in range(self.num_envs):
+            env_ptr = self.envs[i]
+            humanoid_handle = self.humanoid_handles[i]
+            # TODO: Find the position of each rigid body
+            # dof_positions = self.gym.get_actor_dof_states(env_ptr, humanoid_handle, gymapi.STATE_POS)
+            for j in range(self.num_bodies):
+                joint_state = self.gym.get_actor_rigid_body_states(env_ptr, humanoid_handle, gymapi.STATE_POS)
+                joint_position = joint_state['pose']['p'][j]
+                if (joint_position[2] < 0.0):
+                    print(f"joing_name: {self._body_names[j]}, joint_position: {joint_position}")
+                    self.gym.set_rigid_body_color(env_ptr, humanoid_handle, j, gymapi.MESH_VISUAL, gymapi.Vec3(1.0, 0.0, 0.0))
         return
 
 
