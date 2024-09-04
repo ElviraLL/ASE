@@ -167,7 +167,7 @@ class Humanoid(BaseTask):
         if (env_ids is None):
             env_ids = to_torch(np.arange(self.num_envs), device=self.device, dtype=torch.long)
         self._reset_envs(env_ids)
-        # TODO: Jingwen There is  some extra steps in PHC in the reset functionS
+        # TODO: Jingwen There are  some extra steps in PHC in the reset functionS
         return
 
     def set_char_color(self, col, env_ids):

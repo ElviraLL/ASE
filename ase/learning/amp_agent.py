@@ -201,7 +201,7 @@ class AMPAgent(common_agent.CommonAgent):
         mb_rewards = self.experience_buffer.tensor_dict['rewards']
         mb_amp_obs = self.experience_buffer.tensor_dict['amp_obs']
         # print(f"ase.learning.amp_agent: play_steps: mb_rewards: {mb_rewards.shape}, mb_amp_obs: {mb_amp_obs.shape}")
-        # TODO: Jingwen: what is amp reward and what is mb reward?
+        # amp reward is the discriminator reward, and the reward before is the task reward
         amp_rewards = self._calc_amp_rewards(mb_amp_obs)
         mb_rewards = self._combine_rewards(mb_rewards, amp_rewards)
         mb_advs = self.discount_values(mb_fdones, mb_values, mb_rewards, mb_next_values)

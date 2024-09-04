@@ -411,7 +411,7 @@ class BaseTask():
 
     def _physics_step(self):
         for i in range(self.control_freq_inv):
-            # TODO: check penetration and change color of feet
+            # TODO: Jingwen check penetration and change color of feet
             self.render()
             self.gym.simulate(self.sim)
         return
