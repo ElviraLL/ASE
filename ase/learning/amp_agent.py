@@ -607,7 +607,7 @@ class AMPAgent(common_agent.CommonAgent):
         return amp_obs_demo
 
     def _build_amp_buffers(self):
-        batch_shape = self.experience_buffer.obs_base_shape
+        batch_shape = self.experience_buffer.obs_base_shape # [num_envs, num_envs]
         self.experience_buffer.tensor_dict['amp_obs'] = torch.zeros(batch_shape + self._amp_observation_space.shape,
                                                                     device=self.ppo_device)
         self.experience_buffer.tensor_dict['rand_action_mask'] = torch.zeros(batch_shape, dtype=torch.float32, device=self.ppo_device)
@@ -631,7 +631,6 @@ class AMPAgent(common_agent.CommonAgent):
         for i in range(num_batches):
             curr_samples = self._fetch_amp_obs_demo(self._amp_batch_size)
             self._amp_obs_demo_buffer.store({'amp_obs': curr_samples})
-
         return
     
     def _update_amp_demos(self):

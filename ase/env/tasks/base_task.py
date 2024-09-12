@@ -22,7 +22,7 @@ import torch
 class BaseTask():
 
     def __init__(self, cfg, enable_camera_sensors=False):
-        self.gym = gymapi.acquire_gym()
+        self.gym = gymapi.acquire_gym() # initializes and acquires an instance of the Isaac Gym environment. returns a gym object, This Gym object is the main interface for interacting with the Isaac Gym simulation environment.
 
         self.device_type = cfg.get("device_type", "cuda")
         self.device_id = cfg.get("device_id", 0)
@@ -118,7 +118,7 @@ class BaseTask():
     def create_sim(self, compute_device, graphics_device, physics_engine, sim_params):
         print(f"Creating sim with compute device {compute_device}, graphics device {graphics_device}, physics engine {physics_engine}")
         print(f"Sim params: {sim_params}")
-        sim = self.gym.create_sim(compute_device, graphics_device, physics_engine, sim_params)
+        sim = self.gym.create_sim(compute_device, graphics_device, physics_engine, sim_params) # The sim object contains physics and graphics contexts that will allow you to load assets, create environments, and interact with the simulation.
         if sim is None:
             print("*** Failed to create sim")
             quit()

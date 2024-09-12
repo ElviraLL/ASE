@@ -103,7 +103,6 @@ class HumanoidAMP(Humanoid):
         return self._num_amp_obs_steps * self._num_amp_obs_per_step
 
     def fetch_amp_obs_demo(self, num_samples):
-
         if (self._amp_obs_demo_buf is None):
             self._build_amp_obs_demo_buf(num_samples)
         else:
@@ -234,6 +233,10 @@ class HumanoidAMP(Humanoid):
         return
 
     def _reset_ref_state_init(self, env_ids):
+        """
+        This function is used to reset the reference state of the humanoid. It samples a motion from the motion library and sets the state of the 
+        humanoid to the sampled motion by calling _set_env_state(set humanoid_root_states, dof_pos and dof_vel).
+        """
         # print(f"ase.env.tasks.humanoid_amp.HumanoidAMP._reset_ref_state_init: resetting reference state init...")
         # TODO: Jingwen: difference here,
         num_envs = env_ids.shape[0]

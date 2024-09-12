@@ -29,6 +29,7 @@
 import os
 import sys
 
+
 from utils.config import set_np_formatting, set_seed, get_args, parse_sim_params, load_cfg
 from utils.parse_task import parse_task
 
@@ -83,8 +84,8 @@ def create_rlgpu_env(**kwargs):
 
     print('ase.run_hydra.create_rlgpu_env num_envs: {:d}'.format(env.num_envs))
     print('ase.run_hydra.create_rlgpu_env num_actions: {:d}'.format(env.num_actions))
-    print('ase.run_hydra.create_rlgpu_env num_obs: {:d}'.format(env.num_obs))
     print('ase.run_hydra.create_rlgpu_env num_states: {:d}'.format(env.num_states))
+    print('ase.run_hydra.create_rlgpu_env num_obs: {:d}'.format(env.num_obs))
     
     frames = kwargs.pop('frames', 1)
     if frames > 1:

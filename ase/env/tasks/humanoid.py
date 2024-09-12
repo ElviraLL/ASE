@@ -89,7 +89,7 @@ class Humanoid(BaseTask):
 
         # sensors_per_env = 2
         sensors_per_env = 2
-        self.vec_sensor_tensor = gymtorch.wrap_tensor(sensor_tensor).view(self.num_envs, sensors_per_env * 6)
+        self.vec_sensor_tensor = gymtorch.wrap_tensor(sensor_tensor).view(self.num_envs, sensors_per_env * 6) #TODO: HOI sim is not created correctly
 
         dof_force_tensor = self.gym.acquire_dof_force_tensor(self.sim)
         self.dof_force_tensor = gymtorch.wrap_tensor(dof_force_tensor).view(self.num_envs, self.num_dof)
@@ -99,7 +99,7 @@ class Humanoid(BaseTask):
         self.gym.refresh_rigid_body_state_tensor(self.sim)
         self.gym.refresh_net_contact_force_tensor(self.sim)
 
-        self._root_states = gymtorch.wrap_tensor(actor_root_state)
+        self._root_states = gymtorch.wrap_tensor(actor_root_state) # num_actors, 13 (note that there might be more than one asset in each env, )
         num_actors = self.get_num_actors_per_env()
         
         self._humanoid_root_states = self._root_states.view(self.num_envs, num_actors, actor_root_state.shape[-1])[..., 0, :]
@@ -109,8 +109,8 @@ class Humanoid(BaseTask):
         self._humanoid_actor_ids = num_actors * torch.arange(self.num_envs, device=self.device, dtype=torch.int32)
 
         # create some wrapper tensors for different slices
-        self._dof_state = gymtorch.wrap_tensor(dof_state_tensor)
-        dofs_per_env = self._dof_state.shape[0] // self.num_envs
+        self._dof_state = gymtorch.wrap_tensor(dof_state_tensor) # num_rigid_bodies, 2
+        dofs_per_env = self._dof_state.shape[0] // self.num_envs # 48 dof per env
         self._dof_pos = self._dof_state.view(self.num_envs, dofs_per_env, 2)[..., :self.num_dof, 0]
         self._dof_vel = self._dof_state.view(self.num_envs, dofs_per_env, 2)[..., :self.num_dof, 1]
         
@@ -118,19 +118,19 @@ class Humanoid(BaseTask):
         self._initial_dof_vel = torch.zeros_like(self._dof_vel, device=self.device, dtype=torch.float)
         
         self._rigid_body_state = gymtorch.wrap_tensor(rigid_body_state)
-        bodies_per_env = self._rigid_body_state.shape[0] // self.num_envs
-        rigid_body_state_reshaped = self._rigid_body_state.view(self.num_envs, bodies_per_env, 13)
+        bodies_per_env = self._rigid_body_state.shape[0] // self.num_envs # 19 rigid bodies per env
+        rigid_body_state_reshaped = self._rigid_body_state.view(self.num_envs, bodies_per_env, 13) # num_envs, 19, 13
 
         self._initial_humanoid_rigid_body_states = rigid_body_state_reshaped[..., :self.num_bodies, :].clone()
         self._initial_humanoid_rigid_body_states[..., 7:13] = 0
 
-        self._rigid_body_pos = rigid_body_state_reshaped[..., :self.num_bodies, 0:3] # 0, 1, 2
+        self._rigid_body_pos = rigid_body_state_reshaped[..., :self.num_bodies, 0:3] # 0, 1, 2 position
         self._rigid_body_rot = rigid_body_state_reshaped[..., :self.num_bodies, 3:7] # 3, 4, 5, 6, quaternion
         self._rigid_body_vel = rigid_body_state_reshaped[..., :self.num_bodies, 7:10] # velocity
         self._rigid_body_ang_vel = rigid_body_state_reshaped[..., :self.num_bodies, 10:13] # angular velocity
 
         contact_force_tensor = gymtorch.wrap_tensor(contact_force_tensor)
-        self._contact_forces = contact_force_tensor.view(self.num_envs, bodies_per_env, 3)[..., :self.num_bodies, :]
+        self._contact_forces = contact_force_tensor.view(self.num_envs, bodies_per_env, 3)[..., :self.num_bodies, :] # num_envs, 19, 3
         
         self._terminate_buf = torch.ones(self.num_envs, device=self.device, dtype=torch.long)
         
@@ -396,7 +396,7 @@ class Humanoid(BaseTask):
         start_pose.r = gymapi.Quat(0.0, 0.0, 0.0, 1.0)
 
         humanoid_handle = self.gym.create_actor(env_ptr, humanoid_asset, start_pose, "humanoid", col_group, col_filter, segmentation_id)
-        self.gym.enable_actor_dof_force_sensors(env_ptr, humanoid_handle)
+        self.gym.enable_actor_dof_force_sensors(env_ptr, humanoid_handle) #To enable reading forces on each degree-of-freedom of articulated actors, call the
 
         for j in range(self.num_bodies):
             self.gym.set_rigid_body_color(env_ptr, humanoid_handle, j, gymapi.MESH_VISUAL, gymapi.Vec3(0.54, 0.85, 0.2))

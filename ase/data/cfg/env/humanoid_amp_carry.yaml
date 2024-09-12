@@ -1,0 +1,83 @@
+
+# if given, will override the device setting in gym. 
+env: 
+  # numEnvs: 4096
+  numEnvs: 32
+  envSpacing: 5
+  episodeLength: 300
+  isFlagrun: False
+  enableDebugVis: False
+  
+  pdControl: True
+  powerScale: 1.0
+  controlFrequencyInv: 2 # 30 Hz
+  stateInit: "Random"
+  hybridInitProb: 0.5
+  numAMPObsSteps: 10
+
+  localRootObs: False
+  keyBodies: ["R_Ankle", "L_Ankle", "R_Wrist",  "L_Wrist"]
+  contactBodies: ["R_Ankle", "L_Ankle"]
+  carryBodies: ["R_Wrist", "L_Wrist"]
+  skeletonIDs: [0, 1, 2, 3, 5, 6, 7, 9, 10, 11, 12, 14, 15, 16, 17, 19, 20, 21, 22]
+  terminationHeight: 0.15
+  enableEarlyTermination: True
+
+  skill: "loco"
+  enableConditionalDisc: False
+  enableConditionChange: False
+  conditionChangeStepsMin: 100
+  conditionChangeStepsMax: 150
+
+  tarHumanoidSpeedMin: 1.5
+  tarHumanoidSpeedMax: 1.6
+  tarObjectSpeedMin: 1.5
+  tarObjectSpeedMax: 1.6
+
+  asset:
+    assetRoot: "ase/data/assets"
+    assetFileName: "mjcf/smpl_humanoid_v2.xml"
+    object:
+      assetFileName: "mjcf/carry_object.xml"
+      useMeshMaterials: True
+  plane:
+    staticFriction: 1.0
+    dynamicFriction: 1.0
+    restitution: 0.0
+
+sim:
+  substeps: 2
+  physx:
+    num_threads: 4
+    solver_type: 1  # 0: pgs, 1: tgs
+    num_position_iterations: 4
+    num_velocity_iterations: 0
+    contact_offset: 0.02
+    rest_offset: 0.0
+    bounce_threshold_velocity: 0.2
+    max_depenetration_velocity: 10.0
+    default_buffer_size_multiplier: 10.0
+
+  flex:
+    num_inner_iterations: 10
+    warm_start: 0.25
+
+
+# skeletonIDs is the idx of the skeletones used in the environment (scne, render)
+# [
+#     'Pelvis', 
+#     'L_Hip', 'L_Knee', 'L_Ankle',
+#     'R_Hip', 'R_Knee', 'R_Ankle',
+#     'Torso', 'Spine', 'Chest', 'Neck',
+#     'L_Thorax', 'L_Shoulder', 'L_Elbow', 'L_Wrist',
+#     'R_Thorax', 'R_Shoulder', 'R_Elbow', 'R_Wrist',
+# ] 
+# out of the original 24 bones in the SMPL dataset
+# [
+#     'Pelvis',                                                         # 0
+#     'L_Hip', 'L_Knee', 'L_Ankle', 'L_Toe',                            # 1, 2, 3, 4                        
+#     'R_Hip', 'R_Knee', 'R_Ankle', 'R_Toe',                            # 5, 6, 7, 8
+#     'Torso', 'Spine', 'Chest', 'Neck', 'Head',                        # 9, 10, 11, 12, 13
+#     'L_Thorax', 'L_Shoulder', 'L_Elbow', 'L_Wrist', 'L_Hand',         # 14, 15, 16, 17, 18
+#     'R_Thorax', 'R_Shoulder', 'R_Elbow', 'R_Wrist', 'R_Hand',         # 19, 20, 21, 22, 23          
+# ]

@@ -1,4 +1,4 @@
 motions:
   loco:
-    - file: /home/jing/Documents/projs/amass/npys/0-ACCAD-Female1Walking-c3d-B12-walkturnright-90--poses.npy
+    - file: /home/jing/projs/amass/npys/0-ACCAD-Female1Walking-c3d-B12-walkturnright-90--poses.npy
       weight: 1.0
