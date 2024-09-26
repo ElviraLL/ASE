@@ -63,7 +63,7 @@ class HumanoidLocation(humanoid_amp_task.HumanoidAMPTask):
     def get_task_obs_size(self):
         obs_size = 0
         if (self._enable_task_obs):
-            obs_size = 2
+            obs_size = 2 # 2 more dim for target observation (is it the xy coordinate?)
         return obs_size
 
     def pre_physics_step(self, actions):
@@ -133,6 +133,8 @@ class HumanoidLocation(humanoid_amp_task.HumanoidAMPTask):
         return
 
     def _update_task(self):
+        """Run in pre_physics_step
+        """
         reset_task_mask = self.progress_buf >= self._tar_change_steps
         rest_env_ids = reset_task_mask.nonzero(as_tuple=False).flatten()
         if len(rest_env_ids) > 0:
@@ -159,7 +161,6 @@ class HumanoidLocation(humanoid_amp_task.HumanoidAMPTask):
         else:
             root_states = self._humanoid_root_states[env_ids]
             tar_pos = self._tar_pos[env_ids]
-        
         obs = compute_location_observations(root_states, tar_pos)
         return obs
 

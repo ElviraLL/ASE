@@ -29,10 +29,13 @@ env:
   conditionChangeStepsMin: 100
   conditionChangeStepsMax: 150
 
+  tarChangeStepsMin: 100
+  tarChangeStepsMax: 200
   tarHumanoidSpeedMin: 1.5
   tarHumanoidSpeedMax: 1.6
   tarObjectSpeedMin: 1.5
   tarObjectSpeedMax: 1.6
+  
 
   asset:
     assetRoot: "ase/data/assets"

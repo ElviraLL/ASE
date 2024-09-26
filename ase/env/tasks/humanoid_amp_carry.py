@@ -8,12 +8,14 @@ import math
 import numpy as np
 import torch
 import os
+from torch import Tensor
 
 from isaacgym import gymapi
 from isaacgym import gymtorch
 from isaacgym.torch_utils import *
 
 from env.tasks.humanoid_amp import HumanoidAMP # TODO: maybe we should extend HumanoidAMPTask instead?
+
 from utils import torch_utils
 from env.tasks.humanoid import dof_to_obs
 
@@ -45,11 +47,14 @@ class HumanoidAMPCarry(HumanoidAMP):
         self._tar_humanoid_speed_max = cfg["env"]["tarHumanoidSpeedMax"]
         self._tar_object_speed_min = cfg["env"]["tarObjectSpeedMin"]
         self._tar_object_speed_max = cfg["env"]["tarObjectSpeedMax"]
+        self._tar_change_steps_min = cfg["env"]["tarChangeStepsMin"]
+        self._tar_change_steps_max = cfg["env"]["tarChangeStepsMax"]
 
         # Initialize tensors for target speeds and position
         self._tar_humanoid_speed = torch.ones([self.num_envs], device=self.device, dtype=torch.float)
         self._tar_object_speed = torch.ones([self.num_envs], device=self.device, dtype=torch.float)
         self._target_object_pos = torch.zeros([self.num_envs, 3], device=self.device, dtype=torch.float)
+        self._tar_change_steps = torch.zeros([self.num_envs], device=self.device, dtype=torch.int64)
     
         # Add these for velocity calculation
         self._prev_root_pos = torch.zeros([self.num_envs, 3], device=self.device, dtype=torch.float)
@@ -74,6 +79,7 @@ class HumanoidAMPCarry(HumanoidAMP):
 
     def pre_physics_step(self, actions):
         super().pre_physics_step(actions)
+        self._update_task()
         self._prev_root_pos[:] = self._humanoid_root_states[..., 0:3]
         self._prev_object_pos[:] = self._object_pos # TODO: HOI Make sure that this is correctly updated
         return
@@ -88,15 +94,14 @@ class HumanoidAMPCarry(HumanoidAMP):
     def _reset_envs(self, env_ids=None):
         if len(env_ids) > 0:
             self._reset_actors(env_ids)
-            self._reset_objects(env_ids)
+            self._reset_task(env_ids)
             self._reset_target(env_ids)  # New method to reset targets
             self._reset_env_tensors(env_ids)
             self._refresh_sim_tensors()
             self._compute_observations(env_ids) #humanoid obs + interaction obs, the obs feed to policy
-
         return self.obs_buf[env_ids]
 
-    def _reset_objects(self, env_ids):
+    def _reset_task(self, env_ids):
         # Randomize object position and rotation
         self._object_root_states[env_ids, 0:2] = torch.rand((len(env_ids), 2), device=self.device) * 10 - 5  # Random values between -5 and 5 for x and y
         self._object_root_states[env_ids, 2] = self.object_height / 2 # fixed height # TODO: HOI this need to be changed for other objects
@@ -117,6 +122,10 @@ class HumanoidAMPCarry(HumanoidAMP):
         # Reset target object position and rotation
         self._target_object_pos[env_ids] = torch.rand((len(env_ids), 3), device=self.device) * 10 - 5  # Random values between -5 and 5
 
+        n = len(env_ids)
+        change_steps = torch.randint(low=self._tar_change_steps_min, high=self._tar_change_steps_max,
+                                            size=(n,), device=self.device, dtype=torch.int64)
+        self._tar_change_steps[env_ids] = self.progress_buf[env_ids] + change_steps
 
         
     # def _reset_objects(self, env_ids):
@@ -365,6 +374,7 @@ class HumanoidAMPCarry(HumanoidAMP):
 
     def _compute_reward(self, actions):
         root_pos = self._humanoid_root_states[..., 0:3]
+        root_rot = self._humanoid_root_states[..., 3:7]
         object_pos = self._object_pos
         
         # carry_reward = compute_carry_reward(
@@ -387,8 +397,6 @@ class HumanoidAMPCarry(HumanoidAMP):
         humanoid_vel = (root_pos - self._prev_root_pos) / self.dt
         end_points2 = root_pos + humanoid_vel
         colors2 = [gymapi.Vec3(0.0, 1.0, 0.0)] * self.num_envs 
-
-
         # Calculate the distance to the box
         distance_to_box = torch.norm(to_box, dim=-1)
         
@@ -405,10 +413,13 @@ class HumanoidAMPCarry(HumanoidAMP):
         self.draw_debug_vectors([root_pos, root_pos, root_pos], [end_points, end_points2, end_points3], [colors, colors2, colors3])
         ################################# debug  ###########################################
         
-        walk_reward = self.compute_walk_reward(
+        target_walk_pos = object_pos.clone()
+        target_walk_pos = target_walk_pos[:, :2]
+        walk_reward = compute_walk_reward(
             root_pos, 
             self._prev_root_pos,
-            object_pos,
+            root_rot,
+            target_walk_pos,
             self._tar_humanoid_speed,
             self.dt
         )
@@ -418,55 +429,63 @@ class HumanoidAMPCarry(HumanoidAMP):
         self.rew_buf[:] = walk_reward
         return
     
-
-    def compute_walk_reward(
-            self,
-            root_pos, 
-            prev_root_pos,
-            object_pos,
-            tar_humanoid_speed,
-            dt
-    ):
-        # TODO: HOI: Add a direction reward
-        # type: (Tensor, Tensor, Tensor, Tensor, float) -> Tensor
+    def _update_task(self):
+        reset_task_mask = self.progress_buf >= self._tar_change_steps
+        reset_env_ids = reset_task_mask.nonzero(as_tuple=False).flatten()
+        if len(reset_env_ids) > 0:
+            self._reset_task(reset_env_ids)
+        return
         
-        # Calculate humanoid velocity
-        humanoid_vel = (root_pos - prev_root_pos) / dt
-
-        # Calculate the vector from humanoid to box
-        to_box = object_pos - root_pos
-        
-        # Calculate the distance to the box
-        distance_to_box = torch.norm(to_box, dim=-1)
-        
-        # Normalize the direction vector
-        d_star = to_box.clone()
-        d_star[:, 2] = 0
-        d_star = d_star / (torch.norm(d_star, dim=-1, keepdim=True) + 1e-8)
-            
-        # Calculate the rewards
-        distance_reward = 0.4 * torch.exp(-0.5 * distance_to_box**2)
-        speed_reward = 0.4 * torch.exp(-0.2 * (tar_humanoid_speed - torch.sum(d_star * humanoid_vel, dim=-1))**2)
-
-        xy_vel = humanoid_vel.clone()
-        xy_vel[:, 2] = 0
-        normalized_xy_vel = xy_vel / (torch.norm(xy_vel, dim=-1, keepdim=True) + 1e-8)
-        print("")
-        direction_reward = 0.2 * torch.sum(normalized_xy_vel * d_star)**2
-        
-        # Combine rewards based on distance condition
-        r = torch.where(distance_to_box > 0.5,
-                        distance_reward + speed_reward + direction_reward,
-                        torch.full_like(distance_reward, 1.0))
     
-        print(f"\ndistance_reward: {distance_reward}, {0.1 * torch.exp(-0.5 * distance_to_box**2).cpu().numpy()}, distance_to_box: {distance_to_box.cpu().numpy()}, {0.1 * np.exp(-0.5 * distance_to_box.cpu().numpy()**2)}")
-        cpu_distance_to_box = distance_to_box.cpu().numpy()
-        cpu_distance_to_box = np.array(0.01)
-        print(f"distance_to_box: {cpu_distance_to_box}, square: {cpu_distance_to_box**2},  multiply -0.5: {-0.5 * cpu_distance_to_box**2}, take exp: {0.1 * np.exp(-0.5 * cpu_distance_to_box**2)},")
-        print(f"speed_reward: {speed_reward.cpu().numpy()}, aligned_speed:{(torch.sum(d_star * humanoid_vel, dim=-1)**2).cpu().numpy()}, target_speed: {tar_humanoid_speed.cpu().numpy()}")
-        print(f"direction_reward: {direction_reward}")
-        print(f"distance_to_box > 0.5 {(distance_to_box > 0.5).cpu().numpy()}, far reward: {(distance_reward + speed_reward).cpu().numpy()}, final reward is: {r.cpu().numpy()}")
-        return r
+
+    # def compute_walk_reward(
+    #         self,
+    #         root_pos, 
+    #         prev_root_pos,
+    #         object_pos,
+    #         tar_humanoid_speed,
+    #         dt
+    # ):
+    #     # TODO: HOI: Add a direction reward
+    #     # type: (Tensor, Tensor, Tensor, Tensor, float) -> Tensor
+        
+    #     # Calculate humanoid velocity
+    #     humanoid_vel = (root_pos - prev_root_pos) / dt
+
+    #     # Calculate the vector from humanoid to box
+    #     to_box = object_pos - root_pos
+        
+    #     # Calculate the distance to the box
+    #     distance_to_box = torch.norm(to_box, dim=-1)
+        
+    #     # Normalize the direction vector
+    #     d_star = to_box.clone()
+    #     d_star[:, 2] = 0
+    #     d_star = d_star / (torch.norm(d_star, dim=-1, keepdim=True) + 1e-8)
+            
+    #     # Calculate the rewards
+    #     distance_reward = 0.4 * torch.exp(-0.5 * distance_to_box**2)
+    #     speed_reward = 0.4 * torch.exp(-0.2 * (tar_humanoid_speed - torch.sum(d_star * humanoid_vel, dim=-1))**2)
+
+    #     xy_vel = humanoid_vel.clone()
+    #     xy_vel[:, 2] = 0
+    #     normalized_xy_vel = xy_vel / (torch.norm(xy_vel, dim=-1, keepdim=True) + 1e-8)
+    #     print("")
+    #     direction_reward = 0.2 * torch.sum(normalized_xy_vel * d_star)**2
+        
+    #     # Combine rewards based on distance condition
+    #     r = torch.where(distance_to_box > 0.5,
+    #                     distance_reward + speed_reward + direction_reward,
+    #                     torch.full_like(distance_reward, 1.0))
+    
+    #     print(f"\ndistance_reward: {distance_reward}, {0.1 * torch.exp(-0.5 * distance_to_box**2).cpu().numpy()}, distance_to_box: {distance_to_box.cpu().numpy()}, {0.1 * np.exp(-0.5 * distance_to_box.cpu().numpy()**2)}")
+    #     cpu_distance_to_box = distance_to_box.cpu().numpy()
+    #     cpu_distance_to_box = np.array(0.01)
+    #     print(f"distance_to_box: {cpu_distance_to_box}, square: {cpu_distance_to_box**2},  multiply -0.5: {-0.5 * cpu_distance_to_box**2}, take exp: {0.1 * np.exp(-0.5 * cpu_distance_to_box**2)},")
+    #     print(f"speed_reward: {speed_reward.cpu().numpy()}, aligned_speed:{(torch.sum(d_star * humanoid_vel, dim=-1)**2).cpu().numpy()}, target_speed: {tar_humanoid_speed.cpu().numpy()}")
+    #     print(f"direction_reward: {direction_reward}")
+    #     print(f"distance_to_box > 0.5 {(distance_to_box > 0.5).cpu().numpy()}, far reward: {(distance_reward + speed_reward).cpu().numpy()}, final reward is: {r.cpu().numpy()}")
+    #     return r
     
     def _compute_humanoid_obs(self, env_ids=None):
         if (env_ids is None):
@@ -524,10 +543,6 @@ class HumanoidAMPCarry(HumanoidAMP):
                 line = self.gym.add_lines(self.viewer, self.envs[i], 1, [start.x, start.y, start.z, end.x, end.y, end.z], [color.x, color.y, color.z])
                 self.debug_lines.append(line)
 
-    
-
-
-    
     
 
     # def build_amp_obs_demo(self, motion_ids, motion_times0):     # TODO: HOI if commented out, use AMP's regular amp_obs_demo
@@ -800,43 +815,56 @@ def compute_carry_reward(
     
     return r
 
-# @torch.jit.script
-# def compute_walk_reward(
-#     root_pos, 
-#     prev_root_pos,
-#     object_pos,
-#     tar_humanoid_speed,
-#     dt
-# ):
-#     # type: (Tensor, Tensor, Tensor, Tensor, float) -> Tensor
+@torch.jit.script
+def compute_walk_reward(
+    root_pos: Tensor, 
+    prev_root_pos: Tensor,
+    root_rot: Tensor,
+    tar_pos: Tensor,
+    tar_speed: Tensor,
+    dt: float
+) -> Tensor:
     
-#     # Calculate humanoid velocity
-#     humanoid_vel = (root_pos - prev_root_pos) / dt
+    dist_threshold = 0.5
 
-#     # Calculate the vector from humanoid to box
-#     to_box = object_pos - root_pos
+    pos_err_scale = 0.5
+    vel_err_scale = 4.0
+
+    pos_reward_w = 0.5
+    vel_reward_w = 0.4
+    face_reward_w = 0.1
     
-#     # Calculate the distance to the box
-#     distance_to_box = torch.norm(to_box, dim=-1)
+    pos_diff = tar_pos - root_pos[..., 0:2]
+    pos_err = torch.sum(pos_diff * pos_diff, dim=-1)
+    pos_reward = torch.exp(-pos_err_scale * pos_err)
+
+    tar_dir = tar_pos - root_pos[..., 0:2]
+    tar_dir = torch.nn.functional.normalize(tar_dir, dim=-1)
     
-#     # Normalize the direction vector
-#     d_star = to_box.clone()
-#     d_star[:, 2] = 0
-#     d_star = to_box / (torch.norm(d_star, dim=-1, keepdim=True) + 1e-8)
-        
-#     # Calculate the rewards
-#     distance_reward = 0.1 * torch.exp(-0.5 * distance_to_box**2)
-#     speed_reward = 0.1 * torch.exp(-0.2 * (tar_humanoid_speed - torch.sum(d_star * humanoid_vel, dim=-1))**2)
     
-#     # Combine rewards based on distance condition
-#     r = torch.where(distance_to_box > 0.5,
-#                     distance_reward + speed_reward,
-#                     torch.full_like(distance_reward, 0.2))
-    
-#     print(f"\ndistance_to_box: {distance_to_box.cpu()}")
-#     print(f"distance_reward: {distance_reward}")
-#     print(f"speed_reward: {speed_reward}")
-#     print(f"target_speed: {tar_humanoid_speed}")
-#     print(f"reward is: {r}")
-#     return r
+    delta_root_pos = root_pos - prev_root_pos
+    root_vel = delta_root_pos / dt
+    tar_dir_speed = torch.sum(tar_dir * root_vel[..., :2], dim=-1)
+    tar_vel_err = tar_speed - tar_dir_speed
+    tar_vel_err = torch.clamp_min(tar_vel_err, 0.0)
+    vel_reward = torch.exp(-vel_err_scale * (tar_vel_err * tar_vel_err))
+    speed_mask = tar_dir_speed <= 0
+    vel_reward[speed_mask] = 0
+
+
+    heading_rot = torch_utils.calc_heading_quat(root_rot)
+    facing_dir = torch.zeros_like(root_pos)
+    facing_dir[..., 0] = 1.0
+    facing_dir = quat_rotate(heading_rot, facing_dir)
+    facing_err = torch.sum(tar_dir * facing_dir[..., 0:2], dim=-1)
+    facing_reward = torch.clamp_min(facing_err, 0.0)
+
+
+    dist_mask = pos_err < dist_threshold
+    facing_reward[dist_mask] = 1.0
+    vel_reward[dist_mask] = 1.0
+
+    reward = pos_reward_w * pos_reward + vel_reward_w * vel_reward + face_reward_w * facing_reward
+
+    return reward
 

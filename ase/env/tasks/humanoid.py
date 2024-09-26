@@ -706,7 +706,6 @@ class Humanoid(BaseTask):
 
     def post_physics_step(self):
         self.progress_buf += 1
-
         self._refresh_sim_tensors()
         self._compute_observations() # compute observation for all envs
         self._compute_reward(self.actions)
