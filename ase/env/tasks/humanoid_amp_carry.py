@@ -1,10 +1,8 @@
 """
-This scripts defines the Env class for amp training single character HOI, i.e. carrying box task
-* TODO:
-    - [ ] Figure out how to load object_pos, object_rot, object_vel, object_ang_vel
-    - [ ] Figure out how to reset object states in reset function
-    - [ ] Make sure the data grabbing methods are all correct
-    - [ ] Add config for object in env.yaml under assets section
+This scripts defines the Env class for amp training single character HOI, for carrying box task
+Author: Jingwen Liang
+Date: 09/01/2024
+Version: v1
 """
 import math
 import numpy as np
@@ -23,6 +21,8 @@ from env.tasks.humanoid import dof_to_obs
 class HumanoidAMPCarry(HumanoidAMP):
     def __init__(self, cfg, sim_params, physics_engine, device_type, device_id, headless):
         super().__init__(cfg, sim_params, physics_engine, device_type, device_id, headless)
+        self.debug_lines = []  # Store line handles
+        
         
         self._interaction_amp = torch.zeros([self.num_envs, 3], device=self.device, dtype=torch.float) # TODO: HOI, is it only 3 here?
         
@@ -98,7 +98,7 @@ class HumanoidAMPCarry(HumanoidAMP):
 
     def _reset_objects(self, env_ids):
         # Randomize object position and rotation
-        self._object_root_states[env_ids, 0:2] = torch.rand((len(env_ids), 2), device=self.device) * 2 - 1  # Random values between -1 and 1 for x and y
+        self._object_root_states[env_ids, 0:2] = torch.rand((len(env_ids), 2), device=self.device) * 10 - 5  # Random values between -5 and 5 for x and y
         self._object_root_states[env_ids, 2] = self.object_height / 2 # fixed height # TODO: HOI this need to be changed for other objects
         random_angles = torch.rand(len(env_ids), device=self.device) * (2 * math.pi)
         cos_half = torch.cos(random_angles / 2)
@@ -115,7 +115,54 @@ class HumanoidAMPCarry(HumanoidAMP):
         self._object_root_states[env_ids, 7:13] = 0
 
         # Reset target object position and rotation
-        self._target_object_pos[env_ids] = torch.rand((len(env_ids), 3), device=self.device) * 2 - 1  # Random values between -1 and 1
+        self._target_object_pos[env_ids] = torch.rand((len(env_ids), 3), device=self.device) * 10 - 5  # Random values between -5 and 5
+
+
+        
+    # def _reset_objects(self, env_ids):
+    #     # Get the number of environments to reset
+    #     n = len(env_ids)
+        
+    #     # Get the root positions and rotations of the humanoids
+    #     humanoid_root_pos = self._humanoid_root_states[env_ids, 0:3]
+    #     humanoid_root_rot = self._humanoid_root_states[env_ids, 3:7]
+        
+    #     # Calculate the forward direction of each humanoid
+    #     forward_dir = torch.zeros((n, 3), device=self.device)
+    #     # Calculate the forward direction by rotating [0,1,0] vector by humanoid_root_rot
+    #     forward_vec = torch.tensor([1.0, 0.0, 0.0], device=self.device).repeat(n, 1)
+    #     forward_dir = torch_utils.quat_rotate(humanoid_root_rot, forward_vec)
+        
+    #     # Normalize the forward direction
+    #     forward_dir = forward_dir / torch.norm(forward_dir, dim=1, keepdim=True)
+        
+    #     # Generate random distances (between 1 and 2 meters)
+    #     random_distances = torch.rand(n, device=self.device) * 9 + 1  # Random values between 1 and 10
+        
+    #     # Calculate new object positions
+    #     new_object_pos = humanoid_root_pos + random_distances.unsqueeze(1) * forward_dir
+    #     new_object_pos[:, 2] = self.object_height / 2  # Set z-coordinate to half of object height
+    #     # Clip x and y coordinates to be within [-5, 5]
+    #     new_object_pos[:, 0] = torch.clamp(new_object_pos[:, 0], min=-5, max=5)
+    #     new_object_pos[:, 1] = torch.clamp(new_object_pos[:, 1], min=-5, max=5)
+        
+    #     # Set new object positions
+    #     self._object_root_states[env_ids, 0:3] = new_object_pos
+        
+    #     # Randomize object rotation around vertical axis
+    #     random_angles = torch.rand(n, device=self.device) * (2 * math.pi)
+    #     cos_half = torch.cos(random_angles / 2)
+    #     sin_half = torch.sin(random_angles / 2)
+        
+    #     self._object_root_states[env_ids, 3:7] = torch.stack([
+    #         torch.zeros_like(cos_half),  # x
+    #         torch.zeros_like(cos_half),  # y
+    #         sin_half,                    # z
+    #         cos_half                     # w
+    #     ], dim=-1)
+        
+    #     # Reset velocities to zero
+    #     self._object_root_states[env_ids, 7:13] = 0
 
 
     def _reset_target(self, env_ids):
@@ -320,17 +367,45 @@ class HumanoidAMPCarry(HumanoidAMP):
         root_pos = self._humanoid_root_states[..., 0:3]
         object_pos = self._object_pos
         
-        carry_reward = compute_carry_reward(
-            object_pos, 
-            self._prev_object_pos,
-            self._target_object_pos,
-            self._tar_object_speed,
-            torch.mean(self._rigid_body_pos[:, self._carry_body_ids, 2], dim=1), # average height of hands #HOI TODO: add self._hand_body_ids when setting character
-            object_pos[:, 2], # object height
-            self.dt
-        )
+        # carry_reward = compute_carry_reward(
+        #     object_pos, 
+        #     self._prev_object_pos,
+        #     self._target_object_pos,
+        #     self._tar_object_speed,
+        #     torch.mean(self._rigid_body_pos[:, self._carry_body_ids, 2], dim=1), # average height of hands #HOI TODO: add self._hand_body_ids when setting character
+        #     object_pos[:, 2], # object height
+        #     self.dt
+        # )
+
+        ################################# debug  ###########################################
+        to_box = object_pos - root_pos
+
+        end_points = root_pos + to_box
+        # Draw debug vectors
+        colors = [gymapi.Vec3(1.0, 0.0, 0.0)] * self.num_envs  # Red color for all vectors
+
+        humanoid_vel = (root_pos - self._prev_root_pos) / self.dt
+        end_points2 = root_pos + humanoid_vel
+        colors2 = [gymapi.Vec3(0.0, 1.0, 0.0)] * self.num_envs 
+
+
+        # Calculate the distance to the box
+        distance_to_box = torch.norm(to_box, dim=-1)
         
-        walk_reward = compute_walk_reward(
+        # Normalize the direction vector
+        d_star = to_box.clone()
+        d_star[:, 2] = 0
+        d_star = d_star / (torch.norm(d_star, dim=-1, keepdim=True) + 1e-8)
+        root_pos_xy = root_pos.clone()
+        root_pos_xy[:, 2] = 0
+        end_points3 = root_pos_xy + d_star
+        end_points3[:, 2] = root_pos[:, 2]
+        colors3 = [gymapi.Vec3(0.0, 0.0, 1.0)] * self.num_envs 
+
+        self.draw_debug_vectors([root_pos, root_pos, root_pos], [end_points, end_points2, end_points3], [colors, colors2, colors3])
+        ################################# debug  ###########################################
+        
+        walk_reward = self.compute_walk_reward(
             root_pos, 
             self._prev_root_pos,
             object_pos,
@@ -339,8 +414,120 @@ class HumanoidAMPCarry(HumanoidAMP):
         )
         
         # Combine rewards (you may want to adjust the weights)
-        self.rew_buf[:] = 0.5 * carry_reward + 0.5 * walk_reward
+        # self.rew_buf[:] = 0.5 * carry_reward + 0.5 * walk_reward
+        self.rew_buf[:] = walk_reward
         return
+    
+
+    def compute_walk_reward(
+            self,
+            root_pos, 
+            prev_root_pos,
+            object_pos,
+            tar_humanoid_speed,
+            dt
+    ):
+        # TODO: HOI: Add a direction reward
+        # type: (Tensor, Tensor, Tensor, Tensor, float) -> Tensor
+        
+        # Calculate humanoid velocity
+        humanoid_vel = (root_pos - prev_root_pos) / dt
+
+        # Calculate the vector from humanoid to box
+        to_box = object_pos - root_pos
+        
+        # Calculate the distance to the box
+        distance_to_box = torch.norm(to_box, dim=-1)
+        
+        # Normalize the direction vector
+        d_star = to_box.clone()
+        d_star[:, 2] = 0
+        d_star = d_star / (torch.norm(d_star, dim=-1, keepdim=True) + 1e-8)
+            
+        # Calculate the rewards
+        distance_reward = 0.4 * torch.exp(-0.5 * distance_to_box**2)
+        speed_reward = 0.4 * torch.exp(-0.2 * (tar_humanoid_speed - torch.sum(d_star * humanoid_vel, dim=-1))**2)
+
+        xy_vel = humanoid_vel.clone()
+        xy_vel[:, 2] = 0
+        normalized_xy_vel = xy_vel / (torch.norm(xy_vel, dim=-1, keepdim=True) + 1e-8)
+        print("")
+        direction_reward = 0.2 * torch.sum(normalized_xy_vel * d_star)**2
+        
+        # Combine rewards based on distance condition
+        r = torch.where(distance_to_box > 0.5,
+                        distance_reward + speed_reward + direction_reward,
+                        torch.full_like(distance_reward, 1.0))
+    
+        print(f"\ndistance_reward: {distance_reward}, {0.1 * torch.exp(-0.5 * distance_to_box**2).cpu().numpy()}, distance_to_box: {distance_to_box.cpu().numpy()}, {0.1 * np.exp(-0.5 * distance_to_box.cpu().numpy()**2)}")
+        cpu_distance_to_box = distance_to_box.cpu().numpy()
+        cpu_distance_to_box = np.array(0.01)
+        print(f"distance_to_box: {cpu_distance_to_box}, square: {cpu_distance_to_box**2},  multiply -0.5: {-0.5 * cpu_distance_to_box**2}, take exp: {0.1 * np.exp(-0.5 * cpu_distance_to_box**2)},")
+        print(f"speed_reward: {speed_reward.cpu().numpy()}, aligned_speed:{(torch.sum(d_star * humanoid_vel, dim=-1)**2).cpu().numpy()}, target_speed: {tar_humanoid_speed.cpu().numpy()}")
+        print(f"direction_reward: {direction_reward}")
+        print(f"distance_to_box > 0.5 {(distance_to_box > 0.5).cpu().numpy()}, far reward: {(distance_reward + speed_reward).cpu().numpy()}, final reward is: {r.cpu().numpy()}")
+        return r
+    
+    def _compute_humanoid_obs(self, env_ids=None):
+        if (env_ids is None):
+            body_pos = self._rigid_body_pos
+            body_rot = self._rigid_body_rot
+            body_vel = self._rigid_body_vel
+            body_ang_vel = self._rigid_body_ang_vel
+            interaction = self._rigid_body_pos[:, 0] - self._object_pos[:]
+            object_rot = self._object_rot[:]
+        else:
+            body_pos = self._rigid_body_pos[env_ids]
+            body_rot = self._rigid_body_rot[env_ids]
+            body_vel = self._rigid_body_vel[env_ids]
+            body_ang_vel = self._rigid_body_ang_vel[env_ids]
+            interaction = self._rigid_body_pos[env_ids, 0] - self._object_pos[env_ids]
+            object_rot = self._object_rot[env_ids]
+
+        obs = compute_humanoid_observations_max_interaction(
+            body_pos, 
+            body_rot, 
+            body_vel, 
+            body_ang_vel, 
+            self._local_root_obs,
+            self._root_height_obs, 
+            interaction, 
+            object_rot
+        )
+        return obs
+    
+
+
+    def draw_debug_vectors(self, start_points_list, end_points_list, colors_list):
+        """
+        Draw multiple debug vectors in the viewer for each environment, clearing previous vectors.
+        
+        Args:
+        start_points_list (list of torch.Tensor): List of tensors, each of shape (num_envs, 3) containing start points of vectors
+        end_points_list (list of torch.Tensor): List of tensors, each of shape (num_envs, 3) containing end points of vectors
+        colors_list (list of list): List of lists of gymapi.Vec3 colors for each vector type
+        """
+        if self.viewer is None:
+            return
+
+        # Clear previous lines
+        for line in self.debug_lines:
+            self.gym.clear_lines(self.viewer)
+        self.debug_lines = []
+
+        # Draw new lines
+        for i in range(self.num_envs):
+            for j, (start_points, end_points) in enumerate(zip(start_points_list, end_points_list)):
+                start = gymapi.Vec3(start_points[i, 0].item(), start_points[i, 1].item(), start_points[i, 2].item())
+                end = gymapi.Vec3(end_points[i, 0].item(), end_points[i, 1].item(), end_points[i, 2].item())
+                color = colors_list[j][i] if i < len(colors_list[j]) else gymapi.Vec3(1, 0, 0)  # Default to red if color not specified
+                line = self.gym.add_lines(self.viewer, self.envs[i], 1, [start.x, start.y, start.z, end.x, end.y, end.z], [color.x, color.y, color.z])
+                self.debug_lines.append(line)
+
+    
+
+
+    
     
 
     # def build_amp_obs_demo(self, motion_ids, motion_times0):     # TODO: HOI if commented out, use AMP's regular amp_obs_demo
@@ -432,6 +619,7 @@ class HumanoidAMPCarry(HumanoidAMP):
     #             self._object_rot[env_ids]
     #         )
     #     return
+
 
 
 
@@ -596,12 +784,10 @@ def compute_carry_reward(
     d_prime[:, 2] = 0  # Zero out vertical component
     d_prime = d_prime / (torch.norm(d_prime, dim=-1, keepdim=True) + 1e-8)
     
-    # Calculate speed alignment for object
-    object_speed_alignment = torch.sum(d_prime * object_vel, dim=-1)
     
     # Calculate rewards
     position_reward = 0.2 * torch.exp(-0.5 * distance_to_target**2)
-    object_speed_reward = 0.2 * torch.exp(-2.0 * (tar_object_speed - object_speed_alignment)**2)
+    object_speed_reward = 0.2 * torch.exp(-2.0 * (tar_object_speed - torch.sum(d_prime * object_vel, dim=-1))**2)
     height_reward = 0.1 * torch.exp(-10 * (humanoid_hand_height - box_height)**2)
     
     carry_far_reward = position_reward + object_speed_reward + height_reward
@@ -614,43 +800,43 @@ def compute_carry_reward(
     
     return r
 
-@torch.jit.script
-def compute_walk_reward(
-    root_pos, 
-    prev_root_pos,
-    object_pos,
-    tar_humanoid_speed,
-    dt
-):
-    # type: (Tensor, Tensor, Tensor, Tensor, float) -> Tensor
+# @torch.jit.script
+# def compute_walk_reward(
+#     root_pos, 
+#     prev_root_pos,
+#     object_pos,
+#     tar_humanoid_speed,
+#     dt
+# ):
+#     # type: (Tensor, Tensor, Tensor, Tensor, float) -> Tensor
     
-    # Calculate humanoid velocity
-    humanoid_vel = (root_pos - prev_root_pos) / dt
+#     # Calculate humanoid velocity
+#     humanoid_vel = (root_pos - prev_root_pos) / dt
 
-    # Calculate the vector from humanoid to box
-    to_box = object_pos - root_pos
+#     # Calculate the vector from humanoid to box
+#     to_box = object_pos - root_pos
     
-    # Calculate the distance to the box
-    distance_to_box = torch.norm(to_box, dim=-1)
+#     # Calculate the distance to the box
+#     distance_to_box = torch.norm(to_box, dim=-1)
     
-    # Normalize the direction vector
-    d_star = to_box / (distance_to_box.unsqueeze(-1) + 1e-8)
+#     # Normalize the direction vector
+#     d_star = to_box.clone()
+#     d_star[:, 2] = 0
+#     d_star = to_box / (torch.norm(d_star, dim=-1, keepdim=True) + 1e-8)
+        
+#     # Calculate the rewards
+#     distance_reward = 0.1 * torch.exp(-0.5 * distance_to_box**2)
+#     speed_reward = 0.1 * torch.exp(-0.2 * (tar_humanoid_speed - torch.sum(d_star * humanoid_vel, dim=-1))**2)
     
-    # Calculate the humanoid speed
-    humanoid_speed = torch.norm(humanoid_vel, dim=-1)
+#     # Combine rewards based on distance condition
+#     r = torch.where(distance_to_box > 0.5,
+#                     distance_reward + speed_reward,
+#                     torch.full_like(distance_reward, 0.2))
     
-    # Calculate the dot product of d_star and humanoid_vel
-    speed_alignment = torch.sum(d_star * humanoid_vel, dim=-1)
-    
-    # Calculate the rewards
-    distance_reward = 0.1 * torch.exp(-0.5 * distance_to_box**2)
-    speed_reward = 0.1 * torch.exp(-0.2 * (tar_humanoid_speed - humanoid_speed)**2)
-    direction_reward = 0.1 * torch.clamp(speed_alignment / (humanoid_speed + 1e-8), min=0)
-    
-    # Combine rewards based on distance condition
-    r = torch.where(distance_to_box > 0.5,
-                    distance_reward + speed_reward + direction_reward,
-                    torch.full_like(distance_reward, 0.2))
-    
-    return r
+#     print(f"\ndistance_to_box: {distance_to_box.cpu()}")
+#     print(f"distance_reward: {distance_reward}")
+#     print(f"speed_reward: {speed_reward}")
+#     print(f"target_speed: {tar_humanoid_speed}")
+#     print(f"reward is: {r}")
+#     return r
 

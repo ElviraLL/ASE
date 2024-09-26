@@ -6,36 +6,36 @@ python ase/run.py --task HumanoidAMP --cfg_env ase/data/cfg/env/humanoid_sword_s
 
 ## visualization
 ```
-python ase/run.py --test --task HumanoidViewMotion --num_envs 2 --cfg_env ase/data/cfg/env/humanoid_amp_smpl.yaml --cfg_train ase/data/cfg/train/rlg/amp_humanoid_im.yaml --motion_file /home/jing/Documents/projs/amass/npys/0-ACCAD-Female1Walking-c3d-B3-walk1-poses.npy
+python ase/run.py --test --task HumanoidViewMotion --num_envs 2 --cfg_env ase/data/cfg/env/humanoid_amp_smpl.yaml --cfg_train ase/data/cfg/train/rlg/amp_humanoid_im.yaml --motion_file ase/data/cfg/data/walk.yaml
 ```
 
 # on amass branch
 ## run visualization
 ```
-python ase/run.py --test --task HumanoidViewMotion --num_envs 2 --cfg_env ase/data/cfg/env/humanoid_amp_smpl.yaml --cfg_train ase/data/cfg/train/rlg/amp_humanoid_im.yaml --motion_file /home/jing/Documents/projs/amass/npys/0-ACCAD-Female1Walking-c3d-B12-walkturnright-90--poses.npy
-python ase/run.py --test --task HumanoidViewMotion --num_envs 2 --cfg_env ase/data/cfg/env/humanoid_amp_smpl.yaml --cfg_train ase/data/cfg/train/rlg/amp_humanoid_im.yaml --motion_file /home/jing/Documents/projs/amass/npys/0-ACCAD-Female1Walking-c3d-B25-crouchtowalk1-poses.npy
+python ase/run.py --test --task HumanoidViewMotion --num_envs 2 --cfg_env ase/data/cfg/env/humanoid_amp_smpl.yaml --cfg_train ase/data/cfg/train/rlg/amp_humanoid_im.yaml --motion_file /home/jing/projs/amass/npys/0-ACCAD-Female1Walking-c3d-B12-walkturnright-90--poses.npy
+python ase/run.py --test --task HumanoidViewMotion --num_envs 2 --cfg_env ase/data/cfg/env/humanoid_amp_smpl.yaml --cfg_train ase/data/cfg/train/rlg/amp_humanoid_im.yaml --motion_file /home/jing/projs/amass/npys/0-ACCAD-Female1Walking-c3d-B25-crouchtowalk1-poses.npy
 
-python ase/run.py --test --task HumanoidViewMotion --num_envs 2 --cfg_env ase/data/cfg/humanoid_amp_smpl.yaml --cfg_train ase/data/cfg/train/rlg/amp_humanoid_im.yaml --motion_file /home/jing/Documents/projs/CORE4D/isaac_npys/20231002_004/person1_motion.npy
+python ase/run.py --test --task HumanoidViewMotion --num_envs 2 --cfg_env ase/data/cfg/env/humanoid_amp_smpl.yaml --cfg_train ase/data/cfg/train/rlg/amp_debug.yaml --motion_file /home/jing/projs/CORE4D/cutted_isaac_npys/20231002_023/person2_motion.npy
 
-python ase/run.py --test --task HumanoidViewMotion --num_envs 2 --cfg_env ase/data/cfg/humanoid_amp_smpl.yaml --cfg_train ase/data/cfg/train/rlg/amp_humanoid_im.yaml --motion_file /home/jing/Documents/projs/CORE4D/cutted_isaac_npys/20231002_004/person1_motion.npy
 
 ```
 
 ## run AMP training
 ```
-python ase/run.py --task HumanoidAMP --cfg_env ase/data/cfg/env/humanoid_amp_smpl.yaml --cfg_train ase/data/cfg/train/rlg/amp_humanoid_im.yaml --motion_file /home/jing/Documents/projs/amass/npys/0-ACCAD-Female1Walking-c3d-B12-walkturnright-90--poses.npy --headless 
+python ase/run.py --task HumanoidAMP --cfg_env ase/data/cfg/env/humanoid_amp_smpl.yaml --cfg_train ase/data/cfg/train/rlg/amp_humanoid_im.yaml --motion_file /home/jing/projs/amass/npys/0-ACCAD-Female1Walking-c3d-B12-walkturnright-90--poses.npy --headless 
 
-python ase/run.py --task HumanoidAMP --cfg_env ase/data/cfg/env/humanoid_amp_smpl.yaml --cfg_train ase/data/cfg/train/rlg/amp_humanoid_im.yaml --motion_file /home/jing/Documents/projs/CORE4D/cutted_isaac_npys/20231002_004/person1_motion.npy --headless 
+python ase/run.py --task HumanoidAMP --cfg_env ase/data/cfg/env/humanoid_amp_smpl.yaml --cfg_train ase/data/cfg/train/rlg/amp_humanoid_im.yaml --motion_file /home/jing/projs/CORE4D/cutted_isaac_npys/20231002_004/person1_motion.npy --headless 
 ```
 
 # run AMP testing
 ```
-python ase/run.py --test --task HumanoidAMP --num_envs 16 --cfg_env ase/data/cfg/env/humanoid_amp_smpl.yaml --cfg_train ase/data/cfg/train/rlg/amp_humanoid_im.yaml --motion_file /home/jing/Documents/projs/amass/npys/0-ACCAD-Female1Walking-c3d-B12-walkturnright-90--poses.npy --checkpoint ./output/Humanoid_
+python ase/run.py --test --task HumanoidAMP --num_envs 16 --cfg_env ase/data/cfg/env/humanoid_amp_smpl.yaml --cfg_train ase/data/cfg/train/rlg/amp_humanoid_im.yaml --motion_file /home/jing/projs/amass/npys/0-ACCAD-Female1Walking-c3d-B12-walkturnright-90--poses.npy --checkpoint ./output/Humanoid_
+python ase/run.py --test --task HumanoidAMPCarry --num_envs 16 --cfg_env ase/data/cfg/env/humanoid_amp_carry.yaml --cfg_train ase/data/cfg/train/rlg/amp_humanoid_im.yaml --motion_file ase/data/cfg/data/carry.yaml --checkpoint ./output/Humanoid_20240923-00-22-36/nn/Humanoid.pth
 ```
 
 ## Resume training
 ```
-python ase/run.py --task HumanoidAMP --cfg_env ase/data/cfg/env/humanoid_amp_smpl.yaml --cfg_train ase/data/cfg/train/rlg/amp_humanoid_im.yaml --motion_file /home/jing/Documents/projs/amass/npys/0-ACCAD-Female1Walking-c3d-B12-walkturnright-90--poses.npy  --resume 1 --checkpoint ./output/Humanoid_
+python ase/run.py --task HumanoidAMP --cfg_env ase/data/cfg/env/humanoid_amp_smpl.yaml --cfg_train ase/data/cfg/train/rlg/amp_humanoid_im.yaml --motion_file /home/jing/projs/amass/npys/0-ACCAD-Female1Walking-c3d-B12-walkturnright-90--poses.npy  --resume 1 --checkpoint ./output/Humanoid_
 
 ```
 
