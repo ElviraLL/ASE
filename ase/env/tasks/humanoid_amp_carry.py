@@ -192,29 +192,39 @@ class HumanoidAMPCarry(HumanoidAMP):
 
     def _reset_env_tensors(self, env_ids):
         # Set humanoid root state tensor
-        humanoid_actor_ids_int32 = self._humanoid_actor_ids[env_ids].to(torch.int32)
-        self.gym.set_actor_root_state_tensor_indexed(
-            self.sim,
-            gymtorch.unwrap_tensor(self._root_states),
-            gymtorch.unwrap_tensor(humanoid_actor_ids_int32),
-            len(humanoid_actor_ids_int32)
-        )
+        # humanoid_actor_ids_int32 = self._humanoid_actor_ids[env_ids].to(torch.int32)
+        # self.gym.set_actor_root_state_tensor_indexed(
+        #     self.sim,
+        #     gymtorch.unwrap_tensor(self._root_states),
+        #     gymtorch.unwrap_tensor(humanoid_actor_ids_int32),
+        #     len(humanoid_actor_ids_int32)
+        # )
         
-        # dof state tensor -> 1536, 2 = num_envs * num_dof_per_env * 2
-        # where [：, 0] -> dof_pos
-        # where [：, 1] -> dof_vel
-        # humanoid_actor_ids -> [0, 2, 4, 6, 8, ...] are the actor idx
-        # The function set_dof_state_tensor_indexed applies the values in the given tensor to the actors specified in the actor_index_tensor. 
-        # The other actors remain unaffected. This is very useful when resetting only selected actors or environments. The actor indices must 
-        # be 32-bit integers, like those obtained from get_actor_index.
-        # Set dof state tensor (based on actor index according to the documentation
-        self.gym.set_dof_state_tensor_indexed(self.sim, # TODO: set dof state tensor indexed, Maybe it needs its own id
-            gymtorch.unwrap_tensor(self._dof_state),  
-            gymtorch.unwrap_tensor(humanoid_actor_ids_int32),   
-            len(humanoid_actor_ids_int32)
-        )
+        # # dof state tensor -> 1536, 2 = num_envs * num_dof_per_env * 2
+        # # where [：, 0] -> dof_pos
+        # # where [：, 1] -> dof_vel
+        # # humanoid_actor_ids -> [0, 2, 4, 6, 8, ...] are the actor idx
+        # # The function set_dof_state_tensor_indexed applies the values in the given tensor to the actors specified in the actor_index_tensor. 
+        # # The other actors remain unaffected. This is very useful when resetting only selected actors or environments. The actor indices must 
+        # # be 32-bit integers, like those obtained from get_actor_index.
+        # # Set dof state tensor (based on actor index according to the documentation
+        # self.gym.set_dof_state_tensor_indexed(self.sim, # TODO: set dof state tensor indexed, Maybe it needs its own id
+        #     gymtorch.unwrap_tensor(self._dof_state),  
+        #     gymtorch.unwrap_tensor(humanoid_actor_ids_int32),   
+        #     len(humanoid_actor_ids_int32)
+        # )
+        # self.progress_buf[env_ids] = 0
+        # self.reset_buf[env_ids] = 0
+        # self._terminate_buf[env_ids] = 0
+        super()._reset_env_tensors(env_ids)
 
         # We can actially set actor_root_state by passing all index of humanoid and object together and use only one function call for this
+        self._reset_task_env_tensors(env_ids)
+
+
+        return
+    
+    def _reset_task_env_tensors(self, env_ids):
         object_actor_ids_int32 = self._object_ids[env_ids].to(torch.int32)
         self.gym.set_actor_root_state_tensor_indexed(
             self.sim,
@@ -223,10 +233,6 @@ class HumanoidAMPCarry(HumanoidAMP):
             len(object_actor_ids_int32)
         )
 
-        self.progress_buf[env_ids] = 0
-        self.reset_buf[env_ids] = 0
-        self._terminate_buf[env_ids] = 0
-        return
 
 
     def _load_humanoid_asset(self):
@@ -434,6 +440,7 @@ class HumanoidAMPCarry(HumanoidAMP):
         reset_env_ids = reset_task_mask.nonzero(as_tuple=False).flatten()
         if len(reset_env_ids) > 0:
             self._reset_task(reset_env_ids)
+            self._reset_task_env_tensors(reset_env_ids)
         return
         
     
