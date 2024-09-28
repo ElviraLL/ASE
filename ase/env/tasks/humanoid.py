@@ -272,14 +272,12 @@ class Humanoid(BaseTask):
             self._dof_obs_size = len(self._dof_body_ids) * 6
             self._num_actions = len(self._dof_body_ids) * 3
             self._num_obs = 1 + len(self._body_names) * (3 + 6 + 3 + 3) - 3
-
-            self._body_head_name = "Neck"
-            self._body_left_foot_name = "L_Ankle"
-            self._body_right_foot_name = "R_Ankle"
         else:
             print("Unsupported character config file: {s}".format(asset_file))
             assert(False)
-
+        self._body_head_name = "Neck"
+        self._body_left_foot_name = "L_Ankle"
+        self._body_right_foot_name = "R_Ankle"
         return
 
     def _build_termination_heights(self):
