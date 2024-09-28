@@ -49,6 +49,7 @@ class HumanoidAMPCarry(HumanoidAMP):
         self._tar_object_speed_max = cfg["env"]["tarObjectSpeedMax"]
         self._tar_change_steps_min = cfg["env"]["tarChangeStepsMin"]
         self._tar_change_steps_max = cfg["env"]["tarChangeStepsMax"]
+        self._tar_dist_max = cfg['env']['tarDistMax']
 
         # Initialize tensors for target speeds and position
         self._tar_humanoid_speed = torch.ones([self.num_envs], device=self.device, dtype=torch.float)
@@ -102,30 +103,53 @@ class HumanoidAMPCarry(HumanoidAMP):
         return self.obs_buf[env_ids]
 
     def _reset_task(self, env_ids):
-        # Randomize object position and rotation
-        self._object_root_states[env_ids, 0:2] = torch.rand((len(env_ids), 2), device=self.device) * 10 - 5  # Random values between -5 and 5 for x and y
-        self._object_root_states[env_ids, 2] = self.object_height / 2 # fixed height # TODO: HOI this need to be changed for other objects
-        random_angles = torch.rand(len(env_ids), device=self.device) * (2 * math.pi)
-        cos_half = torch.cos(random_angles / 2)
-        sin_half = torch.sin(random_angles / 2)
+        n = len(env_ids)
+        # # Randomize object position and rotation
+        # self._object_root_states[env_ids, 0:2] = torch.rand((len(env_ids), 2), device=self.device) * 10 - 5  # Random values between -5 and 5 for x and y
+        # self._object_root_states[env_ids, 2] = self.object_height / 2 # fixed height # TODO: HOI this need to be changed for other objects
+        # random_angles = torch.rand(len(env_ids), device=self.device) * (2 * math.pi)
+        # cos_half = torch.cos(random_angles / 2)
+        # sin_half = torch.sin(random_angles / 2)
         
-        self._object_root_states[env_ids, 3:7] = torch.stack([
-            torch.zeros_like(cos_half),  # x
-            torch.zeros_like(cos_half),  # y
-            sin_half,                    # z
-            cos_half                     # w
-        ], dim=-1)
+        # self._object_root_states[env_ids, 3:7] = torch.stack([
+        #     torch.zeros_like(cos_half),  # x
+        #     torch.zeros_like(cos_half),  # y
+        #     sin_half,                    # z
+        #     cos_half                     # w
+        # ], dim=-1)
         
-        # Reset velocities to zero
+        # # Reset velocities to zero
+        # self._object_root_states[env_ids, 7:13] = 0
+
+        # # Reset target object position and rotation
+        # self._target_object_pos[env_ids] = torch.rand((len(env_ids), 3), device=self.device) * 10 - 5  # Random values between -5 and 5
+
+        # change_steps = torch.randint(low=self._tar_change_steps_min, high=self._tar_change_steps_max,
+        #                                     size=(n,), device=self.device, dtype=torch.int64)
+        # self._tar_change_steps[env_ids] = self.progress_buf[env_ids] + change_steps
+
+
+        char_root_pos = self._humanoid_root_states[env_ids, 0:2]
+        # rand_dir = (2.0 * torch.rand([n, 2], device=self.device) - 1.0)
+        # Calculate character's facing direction
+        char_root_rot = self._humanoid_root_states[env_ids, 3:7]
+        facing_dir = torch.zeros((n, 3), device=self.device)
+        facing_dir[:, 0] = 1.0  # Set initial direction to [1, 0, 0]
+        facing_dir = torch_utils.quat_rotate(char_root_rot, facing_dir)
+        facing_dir = facing_dir[:, :2]  # We only need x and y components
+        facing_dir = facing_dir / torch.norm(facing_dir, dim=-1, keepdim=True)  # Normalize
+        
+        # Generate a single random distance between 0 and self._tar_dist_max
+        random_distance = torch.rand(1, device=self.device) * self._tar_dist_max
+        rand_pos = random_distance * facing_dir
+
+        self._object_root_states[env_ids, 0:2] = char_root_pos + rand_pos
+        self._object_root_states[env_ids, 2] = self.object_height / 2
         self._object_root_states[env_ids, 7:13] = 0
 
-        # Reset target object position and rotation
-        self._target_object_pos[env_ids] = torch.rand((len(env_ids), 3), device=self.device) * 10 - 5  # Random values between -5 and 5
-
-        n = len(env_ids)
-        change_steps = torch.randint(low=self._tar_change_steps_min, high=self._tar_change_steps_max,
-                                            size=(n,), device=self.device, dtype=torch.int64)
+        change_steps = torch.randint(low=self._tar_change_steps_min, high=self._tar_change_steps_max, size=(n, ), device=self.device, dtype=torch.int64)
         self._tar_change_steps[env_ids] = self.progress_buf[env_ids] + change_steps
+        
 
         
     # def _reset_objects(self, env_ids):
@@ -190,38 +214,10 @@ class HumanoidAMPCarry(HumanoidAMP):
         tar_object_pos[:, 2] = self.object_height / 2  # Set z-coordinate to half of object height
         self._target_object_pos[env_ids] = tar_object_pos
 
+
     def _reset_env_tensors(self, env_ids):
-        # Set humanoid root state tensor
-        # humanoid_actor_ids_int32 = self._humanoid_actor_ids[env_ids].to(torch.int32)
-        # self.gym.set_actor_root_state_tensor_indexed(
-        #     self.sim,
-        #     gymtorch.unwrap_tensor(self._root_states),
-        #     gymtorch.unwrap_tensor(humanoid_actor_ids_int32),
-        #     len(humanoid_actor_ids_int32)
-        # )
-        
-        # # dof state tensor -> 1536, 2 = num_envs * num_dof_per_env * 2
-        # # where [：, 0] -> dof_pos
-        # # where [：, 1] -> dof_vel
-        # # humanoid_actor_ids -> [0, 2, 4, 6, 8, ...] are the actor idx
-        # # The function set_dof_state_tensor_indexed applies the values in the given tensor to the actors specified in the actor_index_tensor. 
-        # # The other actors remain unaffected. This is very useful when resetting only selected actors or environments. The actor indices must 
-        # # be 32-bit integers, like those obtained from get_actor_index.
-        # # Set dof state tensor (based on actor index according to the documentation
-        # self.gym.set_dof_state_tensor_indexed(self.sim, # TODO: set dof state tensor indexed, Maybe it needs its own id
-        #     gymtorch.unwrap_tensor(self._dof_state),  
-        #     gymtorch.unwrap_tensor(humanoid_actor_ids_int32),   
-        #     len(humanoid_actor_ids_int32)
-        # )
-        # self.progress_buf[env_ids] = 0
-        # self.reset_buf[env_ids] = 0
-        # self._terminate_buf[env_ids] = 0
         super()._reset_env_tensors(env_ids)
-
-        # We can actially set actor_root_state by passing all index of humanoid and object together and use only one function call for this
         self._reset_task_env_tensors(env_ids)
-
-
         return
     
     def _reset_task_env_tensors(self, env_ids):
@@ -232,8 +228,6 @@ class HumanoidAMPCarry(HumanoidAMP):
             gymtorch.unwrap_tensor(object_actor_ids_int32),
             len(object_actor_ids_int32)
         )
-
-
 
     def _load_humanoid_asset(self):
         """
@@ -872,6 +866,6 @@ def compute_walk_reward(
     vel_reward[dist_mask] = 1.0
 
     reward = pos_reward_w * pos_reward + vel_reward_w * vel_reward + face_reward_w * facing_reward
-
+    print(pos_reward)
     return reward
 
