@@ -1,0 +1,27 @@
+motions:
+  loco:
+    - file: /home/jing/projs/amass/npys/0-ACCAD-Female1Walking-c3d-B3-walk1-poses.npy
+      weight: 1.0
+    - file: /home/jing/projs/amass/npys/0-ACCAD-Female1General-c3d-A1-Stand-poses.npy
+      weight: 1.0
+    - file: /home/jing/projs/amass/npys/0-ACCAD-Female1Walking-c3d-B9-walkturnleft-90--poses.npy
+      weight: 1.0
+    - file: /home/jing/projs/amass/npys/0-ACCAD-Female1Walking-c3d-B10-walkturnleft-45--poses.npy
+      weight: 1.0
+    - file: /home/jing/projs/amass/npys/0-ACCAD-Female1Walking-c3d-B11-walkturnleft-135--poses.npy
+      weight: 1.0
+    - file: /home/jing/projs/amass/npys/0-ACCAD-Female1Walking-c3d-B12-walkturnright-90--poses.npy
+      weight: 1.0
+    - file: /home/jing/projs/amass/npys/0-ACCAD-Female1Walking-c3d-B13-walkturnright-45--poses.npy
+      weight: 1.0
+    - file: /home/jing/projs/amass/npys/0-ACCAD-Female1Walking-c3d-B14-walkturnright-135--poses.npy
+      weight: 1.0
+    - file: /home/jing/projs/amass/npys/0-ACCAD-Female1Walking-c3d-B2-walktostand-poses.npy
+      weight: 1.0
+    - file: /home/jing/projs/amass/npys/0-ACCAD-Female1Walking-c3d-B5-walkbackwards-poses.npy
+      weight: 1.0
+    - file: /home/jing/projs/amass/npys/0-ACCAD-Female1Walking-c3d-B15-walkturnaround-samedirection--poses.npy
+      weight: 1.0
+    - file: /home/jing/projs/amass/npys/0-ACCAD-Female1Walking-c3d-B16-walkturnchangedirection-poses.npy
+      weight: 1.0
+      

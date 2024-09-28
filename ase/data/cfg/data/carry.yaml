@@ -1,0 +1,6 @@
+motions:
+  loco:
+    - file: /home/jing/projs/CORE4D/cutted_isaac_npys/20231002_023/person1_motion.npy
+      weight: 1.0
+    # - file: /home/jing/projs/CORE4D/cutted_isaac_npys/20231002_023/person2_motion.npy
+    #   weight: 1.0
