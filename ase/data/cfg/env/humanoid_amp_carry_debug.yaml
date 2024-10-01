@@ -34,7 +34,7 @@ env:
   tarHumanoidSpeedMax: 1.6
   tarObjectSpeedMin: 1.5
   tarObjectSpeedMax: 1.6
-  tarDistMax: 10
+  tarDistMax: 4
 
   asset:
     assetRoot: "ase/data/assets"

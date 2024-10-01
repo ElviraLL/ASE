@@ -187,7 +187,8 @@ class AMPAgent(common_agent.CommonAgent):
             self.current_lengths = self.current_lengths * not_dones
             
             if (self.vec_env.env.task.viewer):
-                self._amp_debug(infos)
+                # self._amp_debug(infos)
+                self._reward_debug(infos, rewards)
                 
             done_indices = done_indices[:, 0]
 
@@ -646,8 +647,10 @@ class AMPAgent(common_agent.CommonAgent):
     def _combine_rewards(self, task_rewards, amp_rewards):
         disc_r = amp_rewards['disc_rewards']
         
-        combined_rewards = self._task_reward_w * task_rewards + \
-                         + self._disc_reward_w * disc_r
+        # print(f"task_rewards: {task_rewards.shape}, task_rewards[0:1]: {task_rewards[0:1]}")
+        # print(f"disc_r: {disc_r.shape}, disc_r[0:1]: {disc_r[0:1]}")
+        print(f"weights: {self._task_reward_w}, {self._disc_reward_w}")
+        combined_rewards = self._task_reward_w * task_rewards + self._disc_reward_w * disc_r
         return combined_rewards
 
     def _eval_disc(self, amp_obs):
@@ -731,5 +734,25 @@ class AMPAgent(common_agent.CommonAgent):
 
             disc_pred = disc_pred.detach().cpu().numpy()[0, 0]
             disc_reward = disc_reward.cpu().numpy()[0, 0]
-            print("disc_pred: ", disc_pred, disc_reward)
+            print(f"disc_pred: {disc_pred}, disc_reward: {disc_reward}")
+        return
+    
+
+    def _reward_debug(self, infos, rewards):
+        """
+        infos: dictionary of info with terminate and amp_obs
+        rewards: tensor
+        """
+        with torch.no_grad():
+            amp_obs = infos['amp_obs']
+            amp_obs = amp_obs[0:1]
+            disc_pred = self._eval_disc(amp_obs)
+            amp_rewards = self._calc_amp_rewards(amp_obs)
+            disc_reward = amp_rewards['disc_rewards']
+
+            disc_pred = disc_pred.detach().cpu().numpy()[0, 0]
+            disc_reward = disc_reward.cpu().numpy()[0, 0]
+
+            task_reward = rewards[0:1].detach().cpu().numpy()[0, 0]
+            print(f"task_rewards: {task_reward}, disc_pred: {disc_pred}, disc_reward: {disc_reward}")
         return

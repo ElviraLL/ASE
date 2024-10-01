@@ -139,9 +139,13 @@ class HumanoidAMPCarry(HumanoidAMP):
         facing_dir = facing_dir[:, :2]  # We only need x and y components
         facing_dir = facing_dir / torch.norm(facing_dir, dim=-1, keepdim=True)  # Normalize
         
-        # Generate a single random distance between 0 and self._tar_dist_max
-        random_distance = torch.rand(1, device=self.device) * self._tar_dist_max
-        rand_pos = random_distance * facing_dir
+        # # Generate a single random distance between 0 and self._tar_dist_max, new random position in front of character
+        # random_distance = torch.rand(1, device=self.device) * 5 + 2  # Random value between 2 and 7
+        # rand_pos = random_distance * facing_dir
+
+        # random position in a circle with radius self._tar_dist_max
+        rand_pos = self._tar_dist_max * (2.0 * torch.rand([n, 2], device=self.device) - 1.0)
+
 
         self._object_root_states[env_ids, 0:2] = char_root_pos + rand_pos
         self._object_root_states[env_ids, 2] = self.object_height / 2
@@ -303,7 +307,7 @@ class HumanoidAMPCarry(HumanoidAMP):
         desired_mass = 2.0  # for example, 10 kg
 
         # Calculate the density based on the desired mass and box dimensions
-        unit_length = 0.3
+        unit_length = 0.2
         self.object_height = unit_length
         box_volume = unit_length * unit_length * unit_length  # volume of a 1x1x1 box
         density = desired_mass / box_volume
@@ -392,21 +396,21 @@ class HumanoidAMPCarry(HumanoidAMP):
 
         end_points = root_pos + to_box
         # Draw debug vectors
-        colors = [gymapi.Vec3(1.0, 0.0, 0.0)] * self.num_envs  # Red color for all vectors
+        colors = [gymapi.Vec3(1.0, 1.0, 0.0)] * self.num_envs  # Red color for all vectors
 
         humanoid_vel = (root_pos - self._prev_root_pos) / self.dt
         end_points2 = root_pos + humanoid_vel
-        colors2 = [gymapi.Vec3(0.0, 1.0, 0.0)] * self.num_envs 
+        colors2 = [gymapi.Vec3(1.0, 0.0, 0.0)] * self.num_envs 
         # Calculate the distance to the box
         distance_to_box = torch.norm(to_box, dim=-1)
         
         # Normalize the direction vector
-        d_star = to_box.clone()
-        d_star[:, 2] = 0
-        d_star = d_star / (torch.norm(d_star, dim=-1, keepdim=True) + 1e-8)
+        tar_dir = to_box.clone()
+        tar_dir[:, 2] = 0
+        tar_dir = torch.nn.functional.normalize(tar_dir, dim=-1)
         root_pos_xy = root_pos.clone()
         root_pos_xy[:, 2] = 0
-        end_points3 = root_pos_xy + d_star
+        end_points3 = root_pos_xy + tar_dir
         end_points3[:, 2] = root_pos[:, 2]
         colors3 = [gymapi.Vec3(0.0, 0.0, 1.0)] * self.num_envs 
 
@@ -415,7 +419,7 @@ class HumanoidAMPCarry(HumanoidAMP):
         
         target_walk_pos = object_pos.clone()
         target_walk_pos = target_walk_pos[:, :2]
-        walk_reward = compute_walk_reward(
+        walk_reward = self.compute_walk_reward(
             root_pos, 
             self._prev_root_pos,
             root_rot,
@@ -437,7 +441,99 @@ class HumanoidAMPCarry(HumanoidAMP):
             self._reset_task_env_tensors(reset_env_ids)
         return
         
+    def compute_walk_reward(
+        self,
+        root_pos: Tensor, 
+        prev_root_pos: Tensor,
+        root_rot: Tensor,
+        tar_pos: Tensor,
+        tar_speed: Tensor,
+        dt: float
+    ) -> Tensor:
     
+        dist_threshold = 0.5
+
+        pos_err_scale = 0.5
+        vel_err_scale = 4.0
+
+        pos_reward_w = 0.5
+        vel_reward_w = 0.4
+        face_reward_w = 0.1
+        # pos_reward_w = 1.0
+        # vel_reward_w = 0.0
+        # face_reward_w = 0.0
+
+        pos_diff = tar_pos - root_pos[..., 0:2]
+        pos_err = torch.sum(pos_diff * pos_diff, dim=-1)
+        pos_reward = torch.exp(-pos_err_scale * pos_err)
+
+        tar_dir = tar_pos - root_pos[..., 0:2]
+        tar_dir = torch.nn.functional.normalize(tar_dir, dim=-1)
+        
+        delta_root_pos = root_pos - prev_root_pos
+        root_vel = delta_root_pos / dt
+        tar_dir_speed = torch.sum(tar_dir * root_vel[..., :2], dim=-1) # dot product, get the root_speed in the direction of tar_dir
+        tar_vel_err = tar_speed - tar_dir_speed
+        tar_vel_err = torch.clamp_min(tar_vel_err, 0.0)
+        vel_reward = torch.exp(-vel_err_scale * (tar_vel_err * tar_vel_err))
+        speed_mask = tar_dir_speed <= 0
+        vel_reward[speed_mask] = 0 # if the actual speed is smaller than zero, set the reward to zero
+
+
+        heading_rot = torch_utils.calc_heading_quat(root_rot)
+        facing_dir = torch.zeros_like(root_pos)
+        facing_dir[..., 0] = 1.0
+        facing_dir = quat_rotate(heading_rot, facing_dir) # calculate the facing direction
+        facing_err = torch.sum(tar_dir * facing_dir[..., 0:2], dim=-1) # dot product between tar_dir and facing_dir
+        facing_reward = torch.clamp_min(facing_err, 0.0) # if the facing error is 
+
+
+        dist_mask = pos_err < dist_threshold
+        facing_reward[dist_mask] = 1.0 # if the distance is smaller than the threshold, set the reward to one
+        vel_reward[dist_mask] = 1.0 # if the distance is smaller than the threshold, set the reward to one
+
+        # Calculate the angle between facing_dir and tar_dir
+        angle_rad = torch.acos(torch.clamp(facing_err, -1.0, 1.0))
+        angle_deg = angle_rad * 180 / np.pi
+
+        reward = pos_reward_w * pos_reward + vel_reward_w * vel_reward + face_reward_w * facing_reward
+
+        # print("\n{:<12} {:>20} {:>20} {:>20}".format(
+        #     "Position:",
+        #     f"Reward: {pos_reward[0]:7.3e}",
+        #     f"distance: {torch.norm(pos_diff[0]):7.3f}",
+        #     f"Error: {pos_err[0]:7.3f}"
+        # ))
+
+        # print("{:<12} {:>20} {:>20} {:>20} {:>20} {:>20}".format(
+        #     "Speed:",
+        #     f"Reward: {vel_reward[0]:7.5f}",
+        #     f"Error: {tar_vel_err[0]:7.3f}",
+        #     f"Target: {tar_speed[0]:7.3f}",
+        #     f"Actual: {tar_dir_speed[0]:7.3f}",
+        #     f"dist_mask: {dist_mask[0].cpu().numpy()}"
+        # ))
+
+        # print("{:<12} {:>20} {:>20} {:>20}".format(
+        #     "Facing:",
+        #     f"Reward: {facing_reward[0]:7.3f}",
+        #     f"Angle: {angle_deg[0]:7.3f}",
+        #     f"facing_err: {facing_err[0]:7.3f}"
+        # ))
+
+        weighted_pos_reward = pos_reward_w * pos_reward[0]
+        weighted_vel_reward = vel_reward_w * vel_reward[0]
+        weighted_facing_reward = face_reward_w * facing_reward[0]
+
+        # print("{:<12} {:>20} {:>20} {:>20} {:>20}".format(
+        #     "Total:",
+        #     f"Reward: {reward[0]:7.3f}",
+        #     f"Pos: {weighted_pos_reward:7.3f}",
+        #     f"Vel: {weighted_vel_reward:7.3f}",
+        #     f"Face: {weighted_facing_reward:7.3f}"
+        # ))
+
+        return reward
 
     # def compute_walk_reward(
     #         self,
@@ -866,6 +962,6 @@ def compute_walk_reward(
     vel_reward[dist_mask] = 1.0
 
     reward = pos_reward_w * pos_reward + vel_reward_w * vel_reward + face_reward_w * facing_reward
-    print(pos_reward)
+    print(pos_diff, pos_reward)
     return reward
 
