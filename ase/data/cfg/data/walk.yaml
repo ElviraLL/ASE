@@ -1,12 +1,23 @@
 motions:
   loco:
-    - file: ../motions/style_stand/ACCAD+__+Female1General_c3d+__+A3_-_Swing_t2_stageii/smpl_humanoid_v2/ref_motion.npy
+    - file: /home/jing/projs/amass/npys/0-ACCAD-Female1Walking-c3d-B3-walk1-poses.npy
       weight: 1.0
-    - file: ../motions/style_stand/ACCAD+__+Female1General_c3d+__+A6-_lift_box_t2_stageii/smpl_humanoid_v2/ref_motion.npy
+    - file: /home/jing/projs/amass/npys/0-ACCAD-Female1General-c3d-A1-Stand-poses.npy
+      weight: 0.2
+    - file: /home/jing/projs/amass/npys/0-ACCAD-Female1Walking-c3d-B9-walkturnleft-90--poses.npy
       weight: 1.0
-    - file: ../motions/style_stand/BMLmovi+__+Subject_1_F_MoSh+__+Subject_1_F_2_stageii/smpl_humanoid_v2/ref_motion.npy
+    - file: /home/jing/projs/amass/npys/0-ACCAD-Female1Walking-c3d-B10-walkturnleft-45--poses.npy
       weight: 1.0
-    - file: ../motions/style_stand/BMLmovi+__+Subject_1_F_MoSh+__+Subject_1_F_3_stageii/smpl_humanoid_v2/ref_motion.npy
+    - file: /home/jing/projs/amass/npys/0-ACCAD-Female1Walking-c3d-B11-walkturnleft-135--poses.npy
       weight: 1.0
-    - file: ../motions/style_stand/BMLmovi+__+Subject_1_F_MoSh+__+Subject_1_F_5_stageii/smpl_humanoid_v2/ref_motion.npy
+    - file: /home/jing/projs/amass/npys/0-ACCAD-Female1Walking-c3d-B12-walkturnright-90--poses.npy
       weight: 1.0
+    - file: /home/jing/projs/amass/npys/0-ACCAD-Female1Walking-c3d-B13-walkturnright-45--poses.npy
+      weight: 1.0
+    - file: /home/jing/projs/amass/npys/0-ACCAD-Female1Walking-c3d-B14-walkturnright-135--poses.npy
+      weight: 1.0
+    - file: /home/jing/projs/amass/npys/0-ACCAD-Female1Walking-c3d-B2-walktostand-poses.npy
+      weight: 1.0
+    - file: /home/jing/projs/amass/npys/0-ACCAD-Female1Walking-c3d-B15-walkturnaround-samedirection--poses.npy
+      weight: 1.0
+      
