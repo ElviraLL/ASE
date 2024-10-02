@@ -657,12 +657,10 @@ class Humanoid(BaseTask):
 
     def _compute_observations(self, env_ids=None):
         obs = self._compute_humanoid_obs(env_ids)
-
         if (env_ids is None):
             self.obs_buf[:] = obs
         else:
-            self.obs_buf[env_ids] = obs
-
+             self.obs_buf[env_ids] = obs
         return
 
     def _compute_humanoid_obs(self, env_ids=None): 
@@ -777,22 +775,25 @@ class Humanoid(BaseTask):
         return
 
     def _update_camera(self):
-        self.gym.refresh_actor_root_state_tensor(self.sim)
-        char_root_pos = self._humanoid_root_states[0, 0:3].cpu().numpy()
-        
-        cam_trans = self.gym.get_viewer_camera_transform(self.viewer, None)
-        cam_pos = np.array([cam_trans.p.x, cam_trans.p.y, cam_trans.p.z])
-        cam_delta = cam_pos - self._cam_prev_char_pos
+        if self.use_web_visualizer:
+            pass
+        elif self.viewer:
+            self.gym.refresh_actor_root_state_tensor(self.sim)
+            char_root_pos = self._humanoid_root_states[0, 0:3].cpu().numpy()
+            
+            cam_trans = self.gym.get_viewer_camera_transform(self.viewer, None)
+            cam_pos = np.array([cam_trans.p.x, cam_trans.p.y, cam_trans.p.z])
+            cam_delta = cam_pos - self._cam_prev_char_pos
 
-        new_cam_target = gymapi.Vec3(char_root_pos[0], char_root_pos[1], 1.0)
-        new_cam_pos = gymapi.Vec3(char_root_pos[0] + cam_delta[0], 
-                                  char_root_pos[1] + cam_delta[1], 
-                                  cam_pos[2])
+            new_cam_target = gymapi.Vec3(char_root_pos[0], char_root_pos[1], 1.0)
+            new_cam_pos = gymapi.Vec3(char_root_pos[0] + cam_delta[0], 
+                                    char_root_pos[1] + cam_delta[1], 
+                                    cam_pos[2])
 
-        self.gym.viewer_camera_look_at(self.viewer, None, new_cam_pos, new_cam_target)
+            self.gym.viewer_camera_look_at(self.viewer, None, new_cam_pos, new_cam_target)
 
-        self._cam_prev_char_pos[:] = char_root_pos
-        return
+            self._cam_prev_char_pos[:] = char_root_pos
+            return
 
     def _update_debug_viz(self):
         self.gym.clear_lines(self.viewer)

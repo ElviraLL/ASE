@@ -318,6 +318,7 @@ class HumanoidAMPCarry(HumanoidAMP):
 
     def _compute_reward(self, actions):
         root_pos = self._humanoid_root_states[..., 0:3]
+        root_rot = self._humanoid_root_states[..., 3:7]
         object_pos = self._object_pos
         
         carry_reward = compute_carry_reward(
@@ -333,14 +334,56 @@ class HumanoidAMPCarry(HumanoidAMP):
         walk_reward = compute_walk_reward(
             root_pos, 
             self._prev_root_pos,
-            object_pos,
+            root_rot,
+            object_pos[:, :2], # target position is in x-y plane
             self._tar_humanoid_speed,
             self.dt
         )
         
         # Combine rewards (you may want to adjust the weights)
-        self.rew_buf[:] = 0.5 * carry_reward + 0.5 * walk_reward
+        # self.rew_buf[:] = 0.5 * carry_reward + 0.5 * walk_reward
+        self.rew_buf[:] = walk_reward
         return
+    
+
+    def _compute_humanoid_obs(self, env_ids=None): 
+        """
+        Compute the humanoid_observation
+        if env_ids is None, (no reset) so use the rigid_body states from the simulators
+        else, for those env_ids, we should use the kinematic_humanoid_rigid_body_states that fetched from the reference motion clip
+        """
+        if (env_ids is None):
+            body_pos = self._rigid_body_pos
+            body_rot = self._rigid_body_rot
+            body_vel = self._rigid_body_vel
+            body_ang_vel = self._rigid_body_ang_vel
+            interaction = self._rigid_body_pos[:, 0] - self._object_pos[:]
+            object_rot = self._object_rot[:]
+        else:
+            body_pos = self._kinematic_humanoid_rigid_body_states[env_ids, :, 0:3]
+            body_rot = self._kinematic_humanoid_rigid_body_states[env_ids, :, 3:7]
+            body_vel = self._kinematic_humanoid_rigid_body_states[env_ids, :, 7:10]
+            body_ang_vel = self._kinematic_humanoid_rigid_body_states[env_ids, :, 10:13]
+            interaction = self._kinematic_humanoid_rigid_body_states[env_ids, 0, 0:3] - self._object_pos[env_ids]
+            object_rot = self._object_rot[env_ids]
+            # body_pos = self._rigid_body_pos[env_ids]
+            # body_rot = self._rigid_body_rot[env_ids]
+            # body_vel = self._rigid_body_vel[env_ids]
+            # body_ang_vel = self._rigid_body_ang_vel[env_ids]
+            # interaction = self._rigid_body_pos[env_ids, 0] - self._object_pos[env_ids]
+            # object_rot = self._object_rot[env_ids]
+
+        obs = compute_humanoid_observations_max_interaction(
+            body_pos, 
+            body_rot, 
+            body_vel, 
+            body_ang_vel, 
+            self._local_root_obs,
+            self._root_height_obs,
+            interaction, 
+            object_rot
+        )
+        return obs
     
 
     # def build_amp_obs_demo(self, motion_ids, motion_times0):     # TODO: HOI if commented out, use AMP's regular amp_obs_demo
@@ -615,42 +658,47 @@ def compute_carry_reward(
     return r
 
 @torch.jit.script
-def compute_walk_reward(
-    root_pos, 
-    prev_root_pos,
-    object_pos,
-    tar_humanoid_speed,
-    dt
-):
-    # type: (Tensor, Tensor, Tensor, Tensor, float) -> Tensor
-    
-    # Calculate humanoid velocity
-    humanoid_vel = (root_pos - prev_root_pos) / dt
+def compute_walk_reward(root_pos, prev_root_pos, root_rot, tar_pos, tar_speed, dt):
+    # type: (Tensor, Tensor, Tensor, Tensor, Tensor, float) -> Tensor
+    dist_threshold = 0.5
 
-    # Calculate the vector from humanoid to box
-    to_box = object_pos - root_pos
-    
-    # Calculate the distance to the box
-    distance_to_box = torch.norm(to_box, dim=-1)
-    
-    # Normalize the direction vector
-    d_star = to_box / (distance_to_box.unsqueeze(-1) + 1e-8)
-    
-    # Calculate the humanoid speed
-    humanoid_speed = torch.norm(humanoid_vel, dim=-1)
-    
-    # Calculate the dot product of d_star and humanoid_vel
-    speed_alignment = torch.sum(d_star * humanoid_vel, dim=-1)
-    
-    # Calculate the rewards
-    distance_reward = 0.1 * torch.exp(-0.5 * distance_to_box**2)
-    speed_reward = 0.1 * torch.exp(-0.2 * (tar_humanoid_speed - humanoid_speed)**2)
-    direction_reward = 0.1 * torch.clamp(speed_alignment / (humanoid_speed + 1e-8), min=0)
-    
-    # Combine rewards based on distance condition
-    r = torch.where(distance_to_box > 0.5,
-                    distance_reward + speed_reward + direction_reward,
-                    torch.full_like(distance_reward, 0.2))
-    
-    return r
+    pos_err_scale = 0.5
+    vel_err_scale = 4.0
 
+    pos_reward_w = 0.5
+    vel_reward_w = 0.4
+    face_reward_w = 0.1
+    
+    pos_diff = tar_pos - root_pos[..., 0:2]
+    pos_err = torch.sum(pos_diff * pos_diff, dim=-1)
+    pos_reward = torch.exp(-pos_err_scale * pos_err)
+
+    tar_dir = tar_pos - root_pos[..., 0:2]
+    tar_dir = torch.nn.functional.normalize(tar_dir, dim=-1)
+    
+    
+    delta_root_pos = root_pos - prev_root_pos
+    root_vel = delta_root_pos / dt
+    tar_dir_speed = torch.sum(tar_dir * root_vel[..., :2], dim=-1)
+    tar_vel_err = tar_speed - tar_dir_speed
+    tar_vel_err = torch.clamp_min(tar_vel_err, 0.0)
+    vel_reward = torch.exp(-vel_err_scale * (tar_vel_err * tar_vel_err))
+    speed_mask = tar_dir_speed <= 0
+    vel_reward[speed_mask] = 0
+
+
+    heading_rot = torch_utils.calc_heading_quat(root_rot)
+    facing_dir = torch.zeros_like(root_pos)
+    facing_dir[..., 0] = 1.0
+    facing_dir = quat_rotate(heading_rot, facing_dir)
+    facing_err = torch.sum(tar_dir * facing_dir[..., 0:2], dim=-1)
+    facing_reward = torch.clamp_min(facing_err, 0.0)
+
+
+    dist_mask = pos_err < dist_threshold
+    facing_reward[dist_mask] = 1.0
+    vel_reward[dist_mask] = 1.0
+
+    reward = pos_reward_w * pos_reward + vel_reward_w * vel_reward + face_reward_w * facing_reward
+
+    return reward

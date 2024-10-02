@@ -14,6 +14,10 @@ import random
 from isaacgym import gymapi
 from isaacgym.gymutil import get_property_setter_map, get_property_getter_map, get_default_setter_args, apply_random_samples, check_buckets, generate_random_samples
 
+from meshcat.servers.zmqserver import start_zmq_server_as_subprocess
+from sim_web_visualizer.isaac_visualizer_client import create_isaac_visualizer, bind_visualizer_to_gym, set_gpu_pipeline
+
+
 import numpy as np
 import torch
 
@@ -22,7 +26,23 @@ import torch
 class BaseTask():
 
     def __init__(self, cfg, enable_camera_sensors=False):
-        self.gym = gymapi.acquire_gym() # initializes and acquires an instance of the Isaac Gym environment. returns a gym object, This Gym object is the main interface for interacting with the Isaac Gym simulation environment.
+        
+        self.gym = gymapi.acquire_gym() 
+        self.use_web_visualizer = cfg.get("use_web_visualizer", False)
+        
+        self.web_visualizer = None
+        if self.use_web_visualizer:
+            start_zmq_server_as_subprocess()
+            # Create the web visualizer
+            self.web_visualizer = create_isaac_visualizer(
+                port=cfg.get("visualizer_port", 6000),
+                host=cfg.get("visualizer_host", "localhost"),
+                keep_default_viewer=False,
+                max_env=16,
+                scene_offset=np.array([40.0, 40.0])
+            )
+
+        # initializes and acquires an instance of the Isaac Gym environment. returns a gym object, This Gym object is the main interface for interacting with the Isaac Gym simulation environment.
 
         self.device_type = cfg.get("device_type", "cuda")
         self.device_id = cfg.get("device_id", 0)
@@ -123,6 +143,9 @@ class BaseTask():
             print("*** Failed to create sim")
             quit()
 
+        if self.use_web_visualizer:
+            self.gym = bind_visualizer_to_gym(self.gym, sim)
+            set_gpu_pipeline(sim_params.use_gpu_pipeline)
         return sim
 
     def step(self, actions):
@@ -171,6 +194,7 @@ class BaseTask():
                 self.gym.draw_viewer(self.viewer, self.sim, True)
             else:
                 self.gym.poll_viewer_events(self.viewer)
+
 
     def get_actor_params_info(self, dr_params, env):
         """Returns a flat array of actor params, their names and ranges."""

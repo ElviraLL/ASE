@@ -186,8 +186,9 @@ class AMPAgent(common_agent.CommonAgent):
             self.current_rewards = self.current_rewards * not_dones.unsqueeze(1)
             self.current_lengths = self.current_lengths * not_dones
             
-            if (self.vec_env.env.task.viewer):
-                self._amp_debug(infos)
+            # if (self.vec_env.env.task.viewer):
+            #     self._amp_debug(infos, rewards)
+            self._amp_debug(infos, rewards)
                 
             done_indices = done_indices[:, 0]
 
@@ -285,7 +286,6 @@ class AMPAgent(common_agent.CommonAgent):
         return
 
     def train_epoch(self):
-        print("########################### ase.learning.amp_agent: train_epoch ##################################")
         play_time_start = time.time()
 
         with torch.no_grad():
@@ -327,13 +327,12 @@ class AMPAgent(common_agent.CommonAgent):
             ep_kls = []
             for i in range(len(self.dataset)):
                 curr_train_info = self.train_actor_critic(self.dataset[i])
-                
                 if self.schedule_type == 'legacy':  
                     if self.multi_gpu:
                         curr_train_info['kl'] = self.hvd.average_value(curr_train_info['kl'], 'ep_kls')
                     self.last_lr, self.entropy_coef = self.scheduler.update(self.last_lr, self.entropy_coef, self.epoch_num, 0, curr_train_info['kl'].item())
                     self.update_lr(self.last_lr)
-
+                
                 if (train_info is None):
                     train_info = dict()
                     for k, v in curr_train_info.items():
@@ -342,6 +341,7 @@ class AMPAgent(common_agent.CommonAgent):
                     for k, v in curr_train_info.items():
                         train_info[k].append(v)
             
+
             av_kls = torch_ext.mean_list(train_info['kl'])
 
             if self.schedule_type == 'standard':
@@ -648,6 +648,7 @@ class AMPAgent(common_agent.CommonAgent):
         
         combined_rewards = self._task_reward_w * task_rewards + \
                          + self._disc_reward_w * disc_r
+        print(f"combineing rewards with weights for task: {self._task_reward_w} and disc: {self._disc_reward_w}")
         return combined_rewards
 
     def _eval_disc(self, amp_obs):
@@ -721,7 +722,7 @@ class AMPAgent(common_agent.CommonAgent):
         self.writer.add_scalar('info/disc_reward_std', disc_reward_std.item(), frame)
         return
 
-    def _amp_debug(self, info):
+    def _amp_debug(self, info, task_reward):
         with torch.no_grad():
             amp_obs = info['amp_obs']
             amp_obs = amp_obs[0:1]
@@ -731,5 +732,7 @@ class AMPAgent(common_agent.CommonAgent):
 
             disc_pred = disc_pred.detach().cpu().numpy()[0, 0]
             disc_reward = disc_reward.cpu().numpy()[0, 0]
-            print("disc_pred: ", disc_pred, disc_reward)
+
+            task_reward = task_reward[0:1].detach().cpu().numpy()[0, 0]
+            print(f"disc_pred: {disc_pred}, disc_reward: {disc_reward}, task_reward: {task_reward}")
         return

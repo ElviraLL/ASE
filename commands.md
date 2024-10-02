@@ -31,6 +31,10 @@ python ase/run.py --task HumanoidAMP --cfg_env ase/data/cfg/env/humanoid_amp_smp
 # run AMP testing
 ```
 python ase/run.py --test --task HumanoidAMP --num_envs 16 --cfg_env ase/data/cfg/env/humanoid_amp_smpl.yaml --cfg_train ase/data/cfg/train/rlg/amp_humanoid_im.yaml --motion_file /home/jing/Documents/projs/amass/npys/0-ACCAD-Female1Walking-c3d-B12-walkturnright-90--poses.npy --checkpoint ./output/Humanoid_
+
+python ase/run.py --test --task HumanoidAMPCarry --num_envs 16 --cfg_env ase/data/cfg/env/humanoid_amp_carry.yaml --cfg_train ase/data/cfg/train/rlg/amp_humanoid_im.yaml --motion_file ./ase/data/cfg/data/walk.yaml --checkpoint ./output/Humanoid_20240929-20-28-18/nn/Humanoid.pth 
+
+python ase/run.py --test --task HumanoidAMPCarry --num_envs 16 --cfg_env ase/data/cfg/env/humanoid_amp_carry_web_visualizer.yaml --cfg_train ase/data/cfg/train/rlg/amp_humanoid_im.yaml --motion_file ./ase/data/cfg/data/walk.yaml --checkpoint ./output/Humanoid_20240929-20-28-18/nn/Humanoid.pth 
 ```
 
 ## Resume training

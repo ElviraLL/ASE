@@ -52,6 +52,7 @@ sim:
     num_inner_iterations: 10
     warm_start: 0.25
 
+use_web_visualizer: False
 
 # skeletonIDs is the idx of the skeletones used in the environment (scne, render)
 # [
