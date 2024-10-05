@@ -15,12 +15,12 @@ from isaacgym import gymapi
 from isaacgym import gymtorch
 from isaacgym.torch_utils import *
 
-from env.tasks.humanoid_amp import HumanoidAMP # TODO: maybe we should extend HumanoidAMPTask instead?
+import env.tasks.humanoid_amp_task as humanoid_amp_task
 from utils import torch_utils
 from env.tasks.humanoid import dof_to_obs
 
 
-class HumanoidAMPCarry(HumanoidAMP):
+class HumanoidAMPCarry(humanoid_amp_task.HumanoidAMPTask):
     def __init__(self, cfg, sim_params, physics_engine, device_type, device_id, headless):
         super().__init__(cfg, sim_params, physics_engine, device_type, device_id, headless)
         
@@ -45,6 +45,7 @@ class HumanoidAMPCarry(HumanoidAMP):
         self._tar_humanoid_speed_max = cfg["env"]["tarHumanoidSpeedMax"]
         self._tar_object_speed_min = cfg["env"]["tarObjectSpeedMin"]
         self._tar_object_speed_max = cfg["env"]["tarObjectSpeedMax"]
+        self._tar_dist_max = cfg["env"].get("tarDistMax", 6)
 
         # Initialize tensors for target speeds and position
         self._tar_humanoid_speed = torch.ones([self.num_envs], device=self.device, dtype=torch.float)
@@ -58,6 +59,24 @@ class HumanoidAMPCarry(HumanoidAMP):
         carry_bodies = self.cfg["env"]["carryBodies"]
         self._carry_body_ids = self._build_carry_body_ids_tensor(carry_bodies)
 
+        if (not self.headless):
+            self._build_marker_state_tensors()
+
+        return
+    
+    def _build_marker_state_tensors(self):
+        num_actors = self._root_states.shape[0] // self.num_envs
+        self._marker_states = self._root_states.view(self.num_envs, num_actors, self._root_states.shape[-1])[..., 2, :]
+        self._marker_pos = self._marker_states[..., :3]
+        self._marker_actor_ids = self._humanoid_actor_ids + 2
+        return
+    
+    def _update_marker(self):
+        self._marker_pos[..., 0:2] = self._target_object_pos[..., :2]
+        self._marker_pos[..., 2] = 0.0
+        self.gym.set_actor_root_state_tensor_indexed(self.sim, gymtorch.unwrap_tensor(self._root_states),
+                                                     gymtorch.unwrap_tensor(self._marker_actor_ids), len(self._marker_actor_ids))
+        return
 
     def _build_carry_body_ids_tensor(self, hand_bodies):
         env_ptr = self.envs[0]
@@ -84,19 +103,13 @@ class HumanoidAMPCarry(HumanoidAMP):
         self._num_obs += 7 # Add box position, rotation, 
         # self._num_amp_obs_per_step += 7 # Add box position, rotation
 
-
-    def _reset_envs(self, env_ids=None):
-        if len(env_ids) > 0:
-            self._reset_actors(env_ids)
-            self._reset_objects(env_ids)
-            self._reset_target(env_ids)  # New method to reset targets
-            self._reset_env_tensors(env_ids)
-            self._refresh_sim_tensors()
-            self._compute_observations(env_ids) #humanoid obs + interaction obs, the obs feed to policy
-
-        return self.obs_buf[env_ids]
+    def _reset_task(self, env_ids):
+        self._reset_objects(env_ids)
+        self._reset_target(env_ids)
+        return
 
     def _reset_objects(self, env_ids):
+        n = len(env_ids)
         # Randomize object position and rotation
         self._object_root_states[env_ids, 0:2] = torch.rand((len(env_ids), 2), device=self.device) * 2 - 1  # Random values between -1 and 1 for x and y
         self._object_root_states[env_ids, 2] = self.object_height / 2 # fixed height # TODO: HOI this need to be changed for other objects
@@ -113,10 +126,8 @@ class HumanoidAMPCarry(HumanoidAMP):
         
         # Reset velocities to zero
         self._object_root_states[env_ids, 7:13] = 0
-
-        # Reset target object position and rotation
-        self._target_object_pos[env_ids] = torch.rand((len(env_ids), 3), device=self.device) * 2 - 1  # Random values between -1 and 1
-
+        
+        # self._reset_target(env_ids)
 
     def _reset_target(self, env_ids):
         n = len(env_ids)
@@ -129,9 +140,14 @@ class HumanoidAMPCarry(HumanoidAMP):
         tar_object_speed = torch.rand(n, device=self.device) * (self._tar_object_speed_max - self._tar_object_speed_min) + self._tar_object_speed_min
         self._tar_object_speed[env_ids] = tar_object_speed
 
-        # Reset target object position
-        tar_object_pos = torch.rand((n, 3), device=self.device) * 2 - 1  # Random values between -1 and 1
-        tar_object_pos[:, 2] = self.object_height / 2  # Set z-coordinate to half of object height
+
+        object_pos = self._object_root_states[env_ids, 0:3]
+        rand_pos = self._tar_dist_max * (2.0 * torch.rand([n, 3], device=self.device) - 1.0)
+
+        # Reset target object position and rotation
+        # self._target_object_pos[env_ids] = torch.rand((len(env_ids), 3), device=self.device) * 2 - 1  # Random values between -1 and 1
+        tar_object_pos = object_pos + rand_pos
+        tar_object_pos[..., 2] = self.object_height / 2
         self._target_object_pos[env_ids] = tar_object_pos
 
     def _reset_env_tensors(self, env_ids):
@@ -172,7 +188,6 @@ class HumanoidAMPCarry(HumanoidAMP):
         self._terminate_buf[env_ids] = 0
         return
 
-
     def _load_humanoid_asset(self):
         """
         Load humanoid assets for all agents and save them in self.humanoid_asset
@@ -209,7 +224,6 @@ class HumanoidAMPCarry(HumanoidAMP):
         self.num_bodies = self.gym.get_asset_rigid_body_count(self._humanoid_asset)
         self.num_dof = self.gym.get_asset_dof_count(self._humanoid_asset)
         self.num_joints = self.gym.get_asset_joint_count(self._humanoid_asset)
-
 
     def _load_object_asset(self):
         """
@@ -258,47 +272,40 @@ class HumanoidAMPCarry(HumanoidAMP):
 
         # self._object_asset = self.gym.load_asset(self.sim, asset_root, asset_file, asset_options)
 
+    def _load_marker_asset(self):
+        asset_root = "ase/data/assets/mjcf/"
+        asset_file = "location_marker.urdf"
+
+        asset_options = gymapi.AssetOptions()
+        asset_options.angular_damping = 0.01
+        asset_options.linear_damping = 0.01
+        asset_options.max_angular_velocity = 100.0
+        asset_options.density = 1.0
+        asset_options.fix_base_link = True
+        asset_options.default_dof_drive_mode = gymapi.DOF_MODE_NONE
+
+        self._marker_asset = self.gym.load_asset(self.sim, asset_root, asset_file, asset_options)
+
+        return
+    
     def _create_envs(self, num_envs, spacing, num_per_row): # been called
         """
         Create envs for each agent
         """
-        lower = gymapi.Vec3(-spacing, -spacing, 0.0)
-        upper = gymapi.Vec3(spacing, spacing, spacing)
-
-        self._load_humanoid_asset() # save to self._humanoid_asset
-        self._load_object_asset() # save to self._object_asset
-
-        self.humanoid_handles = []
         self.object_handles = []
-        self.envs = []
-        self.dof_limits_lower = []
-        self.dof_limits_upper = []
-        # self._load_scene_asset()
-        
-        for i in range(self.num_envs):
-            # create env instance
-            env_ptr = self.gym.create_env(self.sim, lower, upper, num_per_row)
-            self._build_env(i, env_ptr, self._humanoid_asset) # this function is defined in Humanoid.py
-            self._build_objects(i, env_ptr, self._object_asset) # use different function to build scene (load the movable object)
-            self.envs.append(env_ptr)
+        if (not self.headless):
+            self._marker_handles = []
+            self._load_marker_asset()
+        self._load_object_asset() # save to self._object_asset
+        super()._create_envs(num_envs, spacing, num_per_row)
+    
+    def _build_env(self, env_id, env_ptr, humanoid_asset):
+        super()._build_env(env_id, env_ptr, humanoid_asset)
+        self._build_object(env_id, env_ptr, self._object_asset)
+        if (not self.headless):
+            self._build_marker(env_id, env_ptr)
 
-        dof_prop = self.gym.get_actor_dof_properties(self.envs[0], self.humanoid_handles[0])
-        for j in range(self.num_dof):
-            if dof_prop['lower'][j] > dof_prop['upper'][j]:
-                self.dof_limits_lower.append(dof_prop['upper'][j])
-                self.dof_limits_upper.append(dof_prop['lower'][j])
-            else:
-                self.dof_limits_lower.append(dof_prop['lower'][j])
-                self.dof_limits_upper.append(dof_prop['upper'][j])
-
-        self.dof_limits_lower = to_torch(self.dof_limits_lower, device=self.device)
-        self.dof_limits_upper = to_torch(self.dof_limits_upper, device=self.device)
-
-        if (self._pd_control):
-            self._build_pd_action_offset_scale()
-        return
-
-    def _build_objects(self, env_id, env_ptr, object_asset):
+    def _build_object(self, env_id, env_ptr, object_asset):
         """
         Build objects for each env
         """
@@ -314,7 +321,17 @@ class HumanoidAMPCarry(HumanoidAMP):
         # self.gym.set_rigid_body_color(self.sim, object_handle, 0, gymapi.Vec3(0.1, 0.9, 0.1))
         self.object_handles.append(object_handle)
         return
-
+    
+    def _build_marker(self, env_id, env_ptr):
+        col_group = env_id
+        col_filter = 2
+        segmentation_id = 0
+        default_pose = gymapi.Transform()
+        
+        marker_handle = self.gym.create_actor(env_ptr, self._marker_asset, default_pose, "marker", col_group, col_filter, segmentation_id)
+        self.gym.set_rigid_body_color(env_ptr, marker_handle, 0, gymapi.MESH_VISUAL, gymapi.Vec3(0.8, 0.0, 0.0))
+        self._marker_handles.append(marker_handle)
+        return
 
     def _compute_reward(self, actions):
         root_pos = self._humanoid_root_states[..., 0:3]
@@ -324,7 +341,7 @@ class HumanoidAMPCarry(HumanoidAMP):
         carry_reward = compute_carry_reward(
             object_pos, 
             self._prev_object_pos,
-            self._target_object_pos,
+            self._target_object_pos[..., :2],
             self._tar_object_speed,
             torch.mean(self._rigid_body_pos[:, self._carry_body_ids, 2], dim=1), # average height of hands #HOI TODO: add self._hand_body_ids when setting character
             object_pos[:, 2], # object height
@@ -341,143 +358,60 @@ class HumanoidAMPCarry(HumanoidAMP):
         )
         
         # Combine rewards (you may want to adjust the weights)
-        # self.rew_buf[:] = 0.5 * carry_reward + 0.5 * walk_reward
-        self.rew_buf[:] = walk_reward
+        self.rew_buf[:] = 0.6 * carry_reward + 0.4 * walk_reward
+        # self.rew_buf[:] = walk_reward
         return
-    
 
-    def _compute_humanoid_obs(self, env_ids=None): 
-        """
-        Compute the humanoid_observation
-        if env_ids is None, (no reset) so use the rigid_body states from the simulators
-        else, for those env_ids, we should use the kinematic_humanoid_rigid_body_states that fetched from the reference motion clip
-        """
+    def _compute_task_obs(self, env_ids=None):
         if (env_ids is None):
             body_pos = self._rigid_body_pos
             body_rot = self._rigid_body_rot
-            body_vel = self._rigid_body_vel
-            body_ang_vel = self._rigid_body_ang_vel
             interaction = self._rigid_body_pos[:, 0] - self._object_pos[:]
             object_rot = self._object_rot[:]
         else:
             body_pos = self._kinematic_humanoid_rigid_body_states[env_ids, :, 0:3]
             body_rot = self._kinematic_humanoid_rigid_body_states[env_ids, :, 3:7]
-            body_vel = self._kinematic_humanoid_rigid_body_states[env_ids, :, 7:10]
-            body_ang_vel = self._kinematic_humanoid_rigid_body_states[env_ids, :, 10:13]
             interaction = self._kinematic_humanoid_rigid_body_states[env_ids, 0, 0:3] - self._object_pos[env_ids]
             object_rot = self._object_rot[env_ids]
-            # body_pos = self._rigid_body_pos[env_ids]
-            # body_rot = self._rigid_body_rot[env_ids]
-            # body_vel = self._rigid_body_vel[env_ids]
-            # body_ang_vel = self._rigid_body_ang_vel[env_ids]
-            # interaction = self._rigid_body_pos[env_ids, 0] - self._object_pos[env_ids]
-            # object_rot = self._object_rot[env_ids]
-
-        obs = compute_humanoid_observations_max_interaction(
-            body_pos, 
-            body_rot, 
-            body_vel, 
-            body_ang_vel, 
-            self._local_root_obs,
-            self._root_height_obs,
-            interaction, 
-            object_rot
-        )
+        
+        obs = compute_box_observation(body_pos, body_rot, interaction, object_rot)
         return obs
+
+    def _draw_task(self):
+        self._update_marker()
+        
+        self.gym.clear_lines(self.viewer)
+
+        for i, env_ptr in enumerate(self.envs):
+            humanoid_root_pos = self._humanoid_root_states[i, 0:3]
+            box_pos = self._object_pos[i, 0:3]
+            target_pos = self._marker_pos[i, 0:3]
+
+            # Draw line from humanoid to box
+            self._draw_line(env_ptr, humanoid_root_pos, box_pos, color=[1.0, 0.0, 0.0])  # Red line
+
+            # Draw line from box to target
+            self._draw_line(env_ptr, box_pos, target_pos, color=[1.0, 0.0, 0.0])  # Red line
+
+        return
+
+    def _draw_line(self, env_ptr, start, end, color):
+        # type: (Any, Tensor, Tensor, List[float]) -> None
+        verts = torch.cat([start, end]).reshape(1, 6).cpu()
+        colors = torch.tensor([color], dtype=torch.float32, device=self.device).cpu()
+        self.gym.add_lines(self.viewer, env_ptr, verts.shape[0], verts.numpy(), colors.numpy())
     
 
-    # def build_amp_obs_demo(self, motion_ids, motion_times0):     # TODO: HOI if commented out, use AMP's regular amp_obs_demo
-    #     # TODO: HOI fix this function
-    #     dt = self.dt
-
-    #     motion_ids = torch.tile(motion_ids.unsqueeze(-1), [1, self._num_amp_obs_steps])
-    #     motion_times = motion_times0.unsqueeze(-1)
-    #     time_steps = -dt * torch.arange(0, self._num_amp_obs_steps, device=self.device)
-    #     motion_times = motion_times + time_steps
-
-    #     motion_ids = motion_ids.view(-1)
-    #     motion_times = motion_times.view(-1)
-    #     root_pos, root_rot, dof_pos, root_vel, root_ang_vel, dof_vel, key_pos \
-    #            = self._motion_lib.get_motion_state(motion_ids, motion_times)
-        
-    #     # TODO: How to get object demo rot?????
-    #     object_pos = self._object_pos[0]
-    #     interaction = root_pos[:] - self._object_pos[0] # object pos relative to humanoid root
-    #     object_rot = torch.zeros((root_pos.shape[0], 4), device=self.device)     
-    #     object_rot[:] = self._demo_object_rot
-    #     amp_obs_demo = build_amp_observations_interaction(root_pos, root_rot, root_vel, root_ang_vel,
-    #                                         dof_pos, dof_vel, key_pos,
-    #                                         self._local_root_obs, self._root_height_obs,
-    #                                         self._dof_obs_size, self._dof_offsets, interaction, object_rot)
-    #     return amp_obs_demo
-
-
-    # def _init_amp_obs_ref(self, env_ids, motion_ids, motion_times):
-    #     dt = self.dt
-    #     motion_ids = torch.tile(motion_ids.unsqueeze(-1), [1, self._num_amp_obs_steps - 1])
-    #     motion_times = motion_times.unsqueeze(-1)
-    #     time_steps = -dt * (torch.arange(0, self._num_amp_obs_steps - 1, device=self.device) + 1)
-    #     motion_times = motion_times + time_steps
-
-    #     motion_ids = motion_ids.view(-1)
-    #     motion_times = motion_times.view(-1)
-    #     root_pos, root_rot, dof_pos, root_vel, root_ang_vel, dof_vel, key_pos \
-    #            = self._motion_lib.get_motion_state(motion_ids, motion_times)
-    #     interaction = root_pos[:] - self._object_pos[0]
-    #     chair_rot = torch.zeros((root_pos.shape[0],4),device=self.device)
-    #     chair_rot[:] = self._demo_object_rot
-    #     amp_obs_demo = build_amp_observations_interaction(root_pos, root_rot, root_vel, root_ang_vel,
-    #                                             dof_pos, dof_vel, key_pos,
-    #                                             self._local_root_obs, self._root_height_obs,
-    #                                             self._dof_obs_size, self._dof_offsets, interaction, chair_rot)
-
-    #     self._hist_amp_obs_buf[env_ids] = amp_obs_demo.view(self._hist_amp_obs_buf[env_ids].shape)
-    #     return
-
-
-    # def _compute_amp_observations(self, env_ids=None):
-    #     """
-    #     Compute interaction observations for each env
-    #     """
-    #     key_body_pos = self._rigid_body_pos[:, self._key_body_ids, :]
-    #     self._interaction_amp[:] = self.rigid_body_pos[:, 0] - self._object_pos[:] # TODO: how to load self._object_pos？
-
-    #     if env_ids is None:
-    #         self._curr_amp_obs_buf[:] = build_amp_observations_interaction(
-    #             self.rigid_body_pos[:, 0, :],
-    #             self.rigid_body_rot[:, 0, :],
-    #             self.rigid_body_vel[:, 0, :],
-    #             self.rigid_body_ang_vel[:, 0, :],
-    #             self.dof_pos,
-    #             self.dof_vel,
-    #             key_body_pos,
-    #             self._local_root_obs,
-    #             self._root_height_obs,
-    #             self._dof_obs_size,
-    #             self._dof_offsets,
-    #             self._interaction_amp[:],
-    #             self._object_rot[:]
-    #         )
-    #     else:
-    #         self._curr_amp_obs_buf[env_ids] = build_amp_observations_interaction(
-    #             self._rigid_body_pos[env_ids][:, 0, :],
-    #             self._rigid_body_rot[env_ids][:, 0, :],
-    #             self._rigid_body_vel[env_ids][:, 0, :],
-    #             self._rigid_body_ang_vel[env_ids][:, 0, :],
-    #             self._dof_pos[env_ids], 
-    #             self._dof_vel[env_ids], 
-    #             key_body_pos[env_ids],
-    #             self._local_root_obs, 
-    #             self._root_height_obs,
-    #             self._dof_obs_size, 
-    #             self._dof_offsets, 
-    #             self._interaction_amp[env_ids],
-    #             self._object_rot[env_ids]
-    #         )
-    #     return
-
-
-
+@torch.jit.script
+def compute_box_observation(body_pos, body_rot, interaction, object_rot):
+    # type: (Tensor, Tensor, Tensor, Tensor) -> Tensor
+    root_pos = body_pos[:, 0, :]
+    root_rot = body_rot[:, 0, :]
+    heading_rot = torch_utils.calc_heading_quat_inv(root_rot)
+    interaction = quat_rotate(heading_rot, interaction)
+    object_rot = quat_mul(heading_rot, object_rot)
+    obs = torch.cat((interaction, object_rot), dim=-1)
+    return obs
 
 @torch.jit.script
 def compute_humanoid_observations_max_interaction(body_pos, body_rot, body_vel, body_ang_vel, local_root_obs, root_height_obs, interaction, object_rot):
@@ -624,34 +558,43 @@ def compute_carry_reward(
     dt
 ):
     # type: (Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, float) -> Tensor
-    
-    # Calculate object velocity
-    object_vel = (object_pos - prev_object_pos) / dt
+    distance_threshold = 0.5
 
-    # Calculate vector from current box position to target position
-    to_target = target_object_pos - object_pos
+    pos_err_scale = 0.5
+    vel_err_scale = 4.0
+    height_err_scale = 10.0
+    carry_near_err_scale = 10.0
+
+    pos_diff = target_object_pos - object_pos[..., 0:2] # TODO: make target pos in x-y plane
+    pos_err = torch.sum(pos_diff * pos_diff, dim=-1)
+    pos_reward = torch.exp(-pos_err_scale * pos_err)
+
+    tar_dir = target_object_pos - object_pos[..., 0:2] # TODO: make target pose in x-y plane
+    tar_dir = torch.nn.functional.normalize(tar_dir, dim=-1)
+
+    delta_object_pos = object_pos - prev_object_pos
+    object_vel = delta_object_pos / dt
     
-    # Calculate distance to target
-    distance_to_target = torch.norm(to_target, dim=-1)
+    tar_dir_speed = torch.sum(tar_dir * object_vel[..., :2], dim=-1) # project object vel onto tar dir
+    tar_vel_err = tar_object_speed - tar_dir_speed
+    tar_vel_err = torch.clamp_min(tar_vel_err, 0.0)
+    vel_reward = torch.exp(-vel_err_scale * (tar_vel_err * tar_vel_err))
+    speed_mask = tar_dir_speed <=0
+    vel_reward[speed_mask] = 0
+
+
+
+    height_diff = humanoid_hand_height - box_height
+    height_err = torch.sum(height_diff * height_diff, dim=-1)
+    height_reward = torch.exp(-height_err_scale * height_err)
+
     
-    # Calculate d_prime (horizontal unit vector pointing from box to target)
-    d_prime = to_target.clone()
-    d_prime[:, 2] = 0  # Zero out vertical component
-    d_prime = d_prime / (torch.norm(d_prime, dim=-1, keepdim=True) + 1e-8)
-    
-    # Calculate speed alignment for object
-    object_speed_alignment = torch.sum(d_prime * object_vel, dim=-1)
-    
-    # Calculate rewards
-    position_reward = 0.2 * torch.exp(-0.5 * distance_to_target**2)
-    object_speed_reward = 0.2 * torch.exp(-2.0 * (tar_object_speed - object_speed_alignment)**2)
-    height_reward = 0.1 * torch.exp(-10 * (humanoid_hand_height - box_height)**2)
-    
-    carry_far_reward = position_reward + object_speed_reward + height_reward
-    carry_near_reward = 0.2 * torch.exp(-10 * distance_to_target**2)
+    carry_far_reward = pos_reward + vel_reward + height_reward
+    carry_near_reward = torch.exp(-carry_near_err_scale * pos_err)
     
     # Combine rewards based on distance condition
-    r = torch.where(distance_to_target > 0.5, 
+
+    r = torch.where(pos_err > 0.5, 
                     carry_far_reward + carry_near_reward, 
                     0.2 + carry_near_reward)
     

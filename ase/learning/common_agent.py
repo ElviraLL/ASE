@@ -53,6 +53,7 @@ from tensorboardX import SummaryWriter
 class CommonAgent(a2c_continuous.A2CAgent):
     def __init__(self, base_name, config):
         #print("ase.learning.common_agent.CommonAgent: CommonAgent class definition")
+        config['full_experiment_name'] = config['name'] + datetime.now().strftime("_%Y%m%d-%H-%M-%S")
         a2c_common.A2CBase.__init__(self, base_name, config)
 
         self._load_config_params(config)

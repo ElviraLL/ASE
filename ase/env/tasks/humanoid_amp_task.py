@@ -32,8 +32,7 @@ import env.tasks.humanoid_amp as humanoid_amp
 
 class HumanoidAMPTask(humanoid_amp.HumanoidAMP):
     def __init__(self, cfg, sim_params, physics_engine, device_type, device_id, headless):
-        self._enable_task_obs = cfg["env"]["enableTaskObs"]
-
+        self._enable_task_obs = cfg["env"].get("enableTaskObs", True) 
         super().__init__(cfg=cfg,
                          sim_params=sim_params,
                          physics_engine=physics_engine,

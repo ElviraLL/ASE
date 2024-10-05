@@ -368,19 +368,6 @@ class Humanoid(BaseTask):
             self._build_pd_action_offset_scale()
         return
     
-
-    # def create_humanoid_force_sensors(self, humanoid_asset, sensor_joint_names):
-    #     # TODO: Jingwen Add this function from PHC to create force sensors
-    #     for jt in sensor_joint_names:
-    #         right_foot_idx = self.gym.find_asset_rigid_body_index(humanoid_asset, jt)
-    #         sensor_pose = gymapi.Transform()
-    #         sensor_options = gymapi.ForceSensorProperties()
-    #         sensor_options.enable_constraint_solver_forces = True # for example contacts 
-    #         sensor_options.use_world_frame = False # Local frame so we can directly send it to computation. 
-    #         # These are the default values. 
-            
-    #         self.gym.create_asset_force_sensor(humanoid_asset, right_foot_idx, sensor_pose, sensor_options)
-    #     return
     
     def _build_env(self, env_id, env_ptr, humanoid_asset):
         # TODO: Jingwen, use PHD's function to build humanoid, they have humanoid_masses and humanoid_limb_and_weights
@@ -405,57 +392,6 @@ class Humanoid(BaseTask):
             dof_prop = self.gym.get_asset_dof_properties(humanoid_asset)
             dof_prop["driveMode"] = gymapi.DOF_MODE_POS
             self.gym.set_actor_dof_properties(env_ptr, humanoid_handle, dof_prop)
-        # TODO: Jingwen, phc setup lots of dof prop here including 
-        # 1. check if self.has_shape_variation: and setup different self.kp_scale and self._kd_scale
-        # 2. dof_prop["driveMode"][:] = gymapi.DOF_MODE_POS
-        # print(f"ase.env.tasks.humanoid.Humanoid._build_env: setting up dof_prop")
-        # dof_prop = self.gym.get_asset_dof_properties(humanoid_asset)
-        # if self.has_shape_variation:
-        #     print(f"ase.env.tasks.humanoid.Humanoid._build_env: has_shape_variation")
-        #     pd_scale = humanoid_mass / self.cfg['env'].get('default_humanoid_mass', 77.0 if self._real_weight else 35.0)
-        #     self._kp_scale = pd_scale * self._kp_scale
-        #     self._kd_scale = pd_scale * self._kd_scale
-            
-        # if (self.control_mode == "isaac_pd"):
-        #     dof_prop["driveMode"][:] = gymapi.DOF_MODE_POS
-        #     dof_prop['stiffness'] *= self._kp_scale
-        #     dof_prop['damping'] *= self._kd_scale
-        # else:
-        #     if self.control_mode == "pd":
-        #         # self.kp_gains = to_torch(self._kp_scale * dof_prop['stiffness'], device=self.device)
-        #         # self.kd_gains = to_torch(self._kd_scale * dof_prop['damping'], device=self.device)
-        #         self.kp_gains = to_torch(self._kp_scale * dof_prop['stiffness']/4, device=self.device)
-        #         self.kd_gains = to_torch(self._kd_scale * dof_prop['damping']/4, device=self.device)
-        #         dof_prop['velocity'][:] = 100
-        #         dof_prop['stiffness'][:] = 0
-        #         dof_prop['friction'][:] = 1
-        #         dof_prop['damping'][:] = 0.001
-        #     elif self.control_mode == "force":
-        #         dof_prop['velocity'][:] = 100
-        #         dof_prop['stiffness'][:] = 0
-        #         dof_prop['friction'][:] = 1
-        #         dof_prop['damping'][:] = 0.001
-        #     dof_prop["driveMode"][:] = gymapi.DOF_MODE_EFFORT
-        # self.gym.set_actor_dof_properties(env_ptr, humanoid_handle, dof_prop)
-
-        # TODO: Jingwen, phc setup the self.gym.set_actor_rigid_shape_properties
-        # if self.humanoid_type in ["smpl", "smplh", "smplx"] and self._has_self_collision:
-        #     # compliance_vals = [0.1] * 24
-        #     # thickness_vals = [1.0] * 24
-        #     if self._has_mesh:
-        #         filter_ints = [0, 1, 224, 512, 384, 1, 1792, 64, 1056, 4096, 6, 6168, 0, 2048, 0, 20, 0, 0, 0, 0, 10, 0, 0, 0]
-        #     else:
-        #         if self.humanoid_type == "smpl":
-        #             filter_ints = [0, 0, 7, 16, 12, 0, 56, 2, 33, 128, 0, 192, 0, 64, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
-        #         elif self.humanoid_type in ["smplh", "smplx"]:
-        #             filter_ints = [0, 0, 7, 16, 12, 0, 56, 2, 33, 128, 0, 192, 0, 64, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
-                    
-        #     props = self.gym.get_actor_rigid_shape_properties(env_ptr, humanoid_handle)
-
-        #     assert (len(filter_ints) == len(props))
-        #     for p_idx in range(len(props)):
-        #         props[p_idx].filter = filter_ints[p_idx]
-        #     self.gym.set_actor_rigid_shape_properties(env_ptr, humanoid_handle, props)
 
         self.humanoid_handles.append(humanoid_handle)
         return
