@@ -387,11 +387,11 @@ class HumanoidAMPCarry(humanoid_amp_task.HumanoidAMPTask):
             box_pos = self._object_pos[i, 0:3]
             target_pos = self._marker_pos[i, 0:3]
 
-            # Draw line from humanoid to box
-            self._draw_line(env_ptr, humanoid_root_pos, box_pos, color=[1.0, 0.0, 0.0])  # Red line
+            # Draw line from humanoid to box: green
+            self._draw_line(env_ptr, humanoid_root_pos, box_pos, color=[0.0, 1.0, 0.0]) 
 
-            # Draw line from box to target
-            self._draw_line(env_ptr, box_pos, target_pos, color=[1.0, 0.0, 0.0])  # Red line
+            # Draw line from box to target: red
+            self._draw_line(env_ptr, box_pos, target_pos, color=[1.0, 0.0, 0.0])  
 
         return
 

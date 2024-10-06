@@ -58,10 +58,9 @@ class HumanoidAMPTask(humanoid_amp.HumanoidAMP):
         return
 
     def render(self, sync_frame_time=False):
-        super().render(sync_frame_time)
-
         if self.viewer:
             self._draw_task()
+        super().render(sync_frame_time)
         return
 
     def _update_task(self):
