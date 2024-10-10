@@ -4,6 +4,6 @@ python ase/run.py \
 --task HumanoidAMPCarry \
 --cfg_env ase/data/cfg/env/humanoid_amp_carry.yaml \
 --cfg_train ase/data/cfg/train/rlg/amp_carry.yaml \
---motion_file ase/data/cfg/data/walk.yaml \
+--motion_file ase/data/cfg/data/pick.yaml \
 --num_envs 4006 \
---headless
+# --headless
