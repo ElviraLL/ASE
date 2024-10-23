@@ -112,7 +112,9 @@ class HumanoidAMPCarry(HumanoidAMP):
         facing_dir = quat_rotate(heading_rot, facing_dir)
         
         # Use facing direction to position object in front of character
-        object_distance = 0.5  # Distance in front of character to place object
+        # object_distance = 0.5  # Distance in front of character to place object
+        # generate a random number betweeen 4-8 float, single value, doesn't need to be tensor
+        object_distance = np.random.uniform(0.8, 1.0)
         object_pos = root_pos + facing_dir * object_distance
         object_pos[..., 2] = self.object_height / 2
         
@@ -361,19 +363,19 @@ class HumanoidAMPCarry(HumanoidAMP):
             self.dt
         )
         
-        # walk_reward = compute_walk_reward(
-        #     root_pos, 
-        #     self._prev_root_pos,
-        #     root_rot,
-        #     object_pos[:, :2], # target position is in x-y plane
-        #     self._tar_humanoid_speed,
-        #     self.dt
-        # )
+        walk_reward = compute_walk_reward(
+            root_pos, 
+            self._prev_root_pos,
+            root_rot,
+            object_pos[:, :2], # target position is in x-y plane
+            self._tar_humanoid_speed,
+            self.dt
+        )
         
         # Combine rewards (you may want to adjust the weights)
-        # self.rew_buf[:] = 0.5 * carry_reward + 0.5 * walk_reward
+        self.rew_buf[:] = 0.5 * carry_reward + 0.5 * walk_reward
         # self.rew_buf[:] = walk_reward
-        self.rew_buf[:] = carry_reward
+        # self.rew_buf[:] = carry_reward
         return
     
 

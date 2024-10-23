@@ -6,4 +6,5 @@ python ase/run.py \
 --cfg_train ase/data/cfg/train/rlg/amp_carry.yaml \
 --motion_file ase/data/cfg/data/pick.yaml \
 --num_envs 4006 \
+--checkpoint ./output/Humanoid_20241010-23-20-58/nn/Humanoid.pt
 # --headless
