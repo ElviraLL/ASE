@@ -38,6 +38,7 @@ class HumanoidAMPCarry(HumanoidAMP):
 
         # Initialize object states
         self._initial_object_root_states = self._object_root_states.clone()
+        self._init_humanoid_root_states = self._humanoid_root_states.clone()
         self._object_ids = num_actors * torch.arange(self.num_envs, device=self.device, dtype=torch.int32) + 1
 
         # Add these new variables
@@ -45,12 +46,13 @@ class HumanoidAMPCarry(HumanoidAMP):
         self._tar_humanoid_speed_max = cfg["env"]["tarHumanoidSpeedMax"]
         self._tar_object_speed_min = cfg["env"]["tarObjectSpeedMin"]
         self._tar_object_speed_max = cfg["env"]["tarObjectSpeedMax"]
+        
 
         # Initialize tensors for target speeds and position
         self._tar_humanoid_speed = torch.ones([self.num_envs], device=self.device, dtype=torch.float)
         self._tar_object_speed = torch.ones([self.num_envs], device=self.device, dtype=torch.float)
         self._target_object_pos = torch.zeros([self.num_envs, 3], device=self.device, dtype=torch.float)
-    
+        self._target_object_height = torch.zeros([self.num_envs], device=self.device, dtype=torch.float)
         # Add these for velocity calculation
         self._prev_root_pos = torch.zeros([self.num_envs, 3], device=self.device, dtype=torch.float)
         self._prev_object_pos = torch.zeros([self.num_envs, 3], device=self.device, dtype=torch.float)
@@ -97,13 +99,35 @@ class HumanoidAMPCarry(HumanoidAMP):
         return self.obs_buf[env_ids]
 
     def _reset_objects(self, env_ids):
-        # Randomize object position and rotation
-        self._object_root_states[env_ids, 0:2] = torch.rand((len(env_ids), 2), device=self.device) * 2 - 1  # Random values between -1 and 1 for x and y
-        self._object_root_states[env_ids, 2] = self.object_height / 2 # fixed height # TODO: HOI this need to be changed for other objects
+        # infront of the character initialization
+        root_pos = self._humanoid_root_states[env_ids, 0:3]
+        root_rot = self._humanoid_root_states[env_ids, 3:7]
+        self._init_humanoid_root_states[env_ids, 0:3] = root_pos.clone()
+        self._init_humanoid_root_states[env_ids, 3:7] = root_rot.clone()
+        
+        # Calculate character's facing direction
+        heading_rot = torch_utils.calc_heading_quat(root_rot)
+        facing_dir = torch.zeros_like(root_pos)
+        facing_dir[..., 0] = 1.0
+        facing_dir = quat_rotate(heading_rot, facing_dir)
+        
+        # Use facing direction to position object in front of character
+        # object_distance = 0.5  # Distance in front of character to place object
+        # generate a random number betweeen 4-8 float, single value, doesn't need to be tensor
+        object_distance = np.random.uniform(0.8, 1.0)
+        object_pos = root_pos + facing_dir * object_distance
+        object_pos[..., 2] = self.object_height / 2
+        
+        # Set object position
+        self._object_root_states[env_ids, 0:3] = object_pos
+        self._initial_object_root_states[env_ids, 0:3] = object_pos.clone()
+        ## random location box initialization
+        # self._object_root_states[env_ids, 0:2] = torch.rand((len(env_ids), 2), device=self.device) * 2 - 1  # Random values between -1 and 1 for x and y
+        # self._object_root_states[env_ids, 2] = self.object_height / 2 # fixed height # TODO: HOI this need to be changed for other objects
+        
         random_angles = torch.rand(len(env_ids), device=self.device) * (2 * math.pi)
         cos_half = torch.cos(random_angles / 2)
         sin_half = torch.sin(random_angles / 2)
-        
         self._object_root_states[env_ids, 3:7] = torch.stack([
             torch.zeros_like(cos_half),  # x
             torch.zeros_like(cos_half),  # y
@@ -115,7 +139,7 @@ class HumanoidAMPCarry(HumanoidAMP):
         self._object_root_states[env_ids, 7:13] = 0
 
         # Reset target object position and rotation
-        self._target_object_pos[env_ids] = torch.rand((len(env_ids), 3), device=self.device) * 2 - 1  # Random values between -1 and 1
+        # self._target_object_pos[env_ids] = torch.rand((len(env_ids), 3), device=self.device) * 2 - 1  # Random values between -1 and 1
 
 
     def _reset_target(self, env_ids):
@@ -129,10 +153,18 @@ class HumanoidAMPCarry(HumanoidAMP):
         tar_object_speed = torch.rand(n, device=self.device) * (self._tar_object_speed_max - self._tar_object_speed_min) + self._tar_object_speed_min
         self._tar_object_speed[env_ids] = tar_object_speed
 
+
+        root_pos = self._init_humanoid_root_states[env_ids, 0:3]
+        self._target_object_height[env_ids] = root_pos[:, 2] + self.object_height / 2
+
         # Reset target object position
-        tar_object_pos = torch.rand((n, 3), device=self.device) * 2 - 1  # Random values between -1 and 1
-        tar_object_pos[:, 2] = self.object_height / 2  # Set z-coordinate to half of object height
+        # tar_object_pos = torch.rand((n, 3), device=self.device) * 2 - 1  # Random values between -1 and 1
+        # tar_object_pos[:, 2] = self.object_height / 2  # Set z-coordinate to half of object height
+        tar_object_pos = self._initial_object_root_states[env_ids, 0:3]
+        tar_object_pos[:, 2] = self._target_object_height[env_ids]
         self._target_object_pos[env_ids] = tar_object_pos
+
+        
 
     def _reset_env_tensors(self, env_ids):
         # Set humanoid root state tensor
@@ -341,8 +373,9 @@ class HumanoidAMPCarry(HumanoidAMP):
         )
         
         # Combine rewards (you may want to adjust the weights)
-        # self.rew_buf[:] = 0.5 * carry_reward + 0.5 * walk_reward
-        self.rew_buf[:] = walk_reward
+        self.rew_buf[:] = 0.5 * carry_reward + 0.5 * walk_reward
+        # self.rew_buf[:] = walk_reward
+        # self.rew_buf[:] = carry_reward
         return
     
 
@@ -385,99 +418,24 @@ class HumanoidAMPCarry(HumanoidAMP):
         )
         return obs
     
+    def _draw_task(self):
+        cols = np.array([[0.0, 1.0, 0.0]], dtype=np.float32)
+        self.gym.clear_lines(self.viewer)
+        starts = self._object_pos
+        ends = self._target_object_pos
+        verts = torch.cat([starts, ends], dim=-1).cpu().numpy()
+        for i, env_ptr in enumerate(self.envs):
+            curr_verts = verts[i]
+            curr_verts = curr_verts.reshape([1, 6])
+            self.gym.add_lines(self.viewer, env_ptr, curr_verts.shape[0], curr_verts, cols)
+        return
 
-    # def build_amp_obs_demo(self, motion_ids, motion_times0):     # TODO: HOI if commented out, use AMP's regular amp_obs_demo
-    #     # TODO: HOI fix this function
-    #     dt = self.dt
+    def render(self, sync_frame_time=False):
+        super().render(sync_frame_time)
 
-    #     motion_ids = torch.tile(motion_ids.unsqueeze(-1), [1, self._num_amp_obs_steps])
-    #     motion_times = motion_times0.unsqueeze(-1)
-    #     time_steps = -dt * torch.arange(0, self._num_amp_obs_steps, device=self.device)
-    #     motion_times = motion_times + time_steps
-
-    #     motion_ids = motion_ids.view(-1)
-    #     motion_times = motion_times.view(-1)
-    #     root_pos, root_rot, dof_pos, root_vel, root_ang_vel, dof_vel, key_pos \
-    #            = self._motion_lib.get_motion_state(motion_ids, motion_times)
-        
-    #     # TODO: How to get object demo rot?????
-    #     object_pos = self._object_pos[0]
-    #     interaction = root_pos[:] - self._object_pos[0] # object pos relative to humanoid root
-    #     object_rot = torch.zeros((root_pos.shape[0], 4), device=self.device)     
-    #     object_rot[:] = self._demo_object_rot
-    #     amp_obs_demo = build_amp_observations_interaction(root_pos, root_rot, root_vel, root_ang_vel,
-    #                                         dof_pos, dof_vel, key_pos,
-    #                                         self._local_root_obs, self._root_height_obs,
-    #                                         self._dof_obs_size, self._dof_offsets, interaction, object_rot)
-    #     return amp_obs_demo
-
-
-    # def _init_amp_obs_ref(self, env_ids, motion_ids, motion_times):
-    #     dt = self.dt
-    #     motion_ids = torch.tile(motion_ids.unsqueeze(-1), [1, self._num_amp_obs_steps - 1])
-    #     motion_times = motion_times.unsqueeze(-1)
-    #     time_steps = -dt * (torch.arange(0, self._num_amp_obs_steps - 1, device=self.device) + 1)
-    #     motion_times = motion_times + time_steps
-
-    #     motion_ids = motion_ids.view(-1)
-    #     motion_times = motion_times.view(-1)
-    #     root_pos, root_rot, dof_pos, root_vel, root_ang_vel, dof_vel, key_pos \
-    #            = self._motion_lib.get_motion_state(motion_ids, motion_times)
-    #     interaction = root_pos[:] - self._object_pos[0]
-    #     chair_rot = torch.zeros((root_pos.shape[0],4),device=self.device)
-    #     chair_rot[:] = self._demo_object_rot
-    #     amp_obs_demo = build_amp_observations_interaction(root_pos, root_rot, root_vel, root_ang_vel,
-    #                                             dof_pos, dof_vel, key_pos,
-    #                                             self._local_root_obs, self._root_height_obs,
-    #                                             self._dof_obs_size, self._dof_offsets, interaction, chair_rot)
-
-    #     self._hist_amp_obs_buf[env_ids] = amp_obs_demo.view(self._hist_amp_obs_buf[env_ids].shape)
-    #     return
-
-
-    # def _compute_amp_observations(self, env_ids=None):
-    #     """
-    #     Compute interaction observations for each env
-    #     """
-    #     key_body_pos = self._rigid_body_pos[:, self._key_body_ids, :]
-    #     self._interaction_amp[:] = self.rigid_body_pos[:, 0] - self._object_pos[:] # TODO: how to load self._object_pos？
-
-    #     if env_ids is None:
-    #         self._curr_amp_obs_buf[:] = build_amp_observations_interaction(
-    #             self.rigid_body_pos[:, 0, :],
-    #             self.rigid_body_rot[:, 0, :],
-    #             self.rigid_body_vel[:, 0, :],
-    #             self.rigid_body_ang_vel[:, 0, :],
-    #             self.dof_pos,
-    #             self.dof_vel,
-    #             key_body_pos,
-    #             self._local_root_obs,
-    #             self._root_height_obs,
-    #             self._dof_obs_size,
-    #             self._dof_offsets,
-    #             self._interaction_amp[:],
-    #             self._object_rot[:]
-    #         )
-    #     else:
-    #         self._curr_amp_obs_buf[env_ids] = build_amp_observations_interaction(
-    #             self._rigid_body_pos[env_ids][:, 0, :],
-    #             self._rigid_body_rot[env_ids][:, 0, :],
-    #             self._rigid_body_vel[env_ids][:, 0, :],
-    #             self._rigid_body_ang_vel[env_ids][:, 0, :],
-    #             self._dof_pos[env_ids], 
-    #             self._dof_vel[env_ids], 
-    #             key_body_pos[env_ids],
-    #             self._local_root_obs, 
-    #             self._root_height_obs,
-    #             self._dof_obs_size, 
-    #             self._dof_offsets, 
-    #             self._interaction_amp[env_ids],
-    #             self._object_rot[env_ids]
-    #         )
-    #     return
-
-
-
+        if self.viewer:
+            self._draw_task()
+        return
 
 @torch.jit.script
 def compute_humanoid_observations_max_interaction(body_pos, body_rot, body_vel, body_ang_vel, local_root_obs, root_height_obs, interaction, object_rot):
@@ -613,6 +571,74 @@ def build_amp_observations_interaction(root_pos, root_rot, root_vel, root_ang_ve
     return obs
 
 
+# @torch.jit.script
+# def compute_carry_reward(
+#     object_pos, 
+#     prev_object_pos,
+#     target_object_pos,
+#     tar_object_speed,
+#     humanoid_hand_height, 
+#     box_height,
+#     dt
+# ):
+#     # type: (Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, float) -> Tensor
+    
+#     # Calculate object velocity
+#     object_vel = (object_pos - prev_object_pos) / dt
+
+#     # Calculate vector from current box position to target position
+#     to_target = target_object_pos - object_pos
+    
+#     # Calculate distance to target
+#     distance_to_target = torch.norm(to_target, dim=-1)
+    
+#     # Calculate d_prime (horizontal unit vector pointing from box to target)
+#     d_prime = to_target.clone()
+#     d_prime[:, 2] = 0  # Zero out vertical component
+#     d_prime = d_prime / (torch.norm(d_prime, dim=-1, keepdim=True) + 1e-8)
+    
+#     # Calculate speed alignment for object
+#     object_speed_alignment = torch.sum(d_prime * object_vel, dim=-1)
+    
+#     # Calculate rewards
+#     position_reward = 0.2 * torch.exp(-0.5 * distance_to_target**2)
+#     object_speed_reward = 0.2 * torch.exp(-2.0 * (tar_object_speed - object_speed_alignment)**2)
+#     height_reward = 0.1 * torch.exp(-10 * (humanoid_hand_height - box_height)**2)
+    
+#     carry_far_reward = position_reward + object_speed_reward + height_reward
+#     carry_near_reward = 0.2 * torch.exp(-10 * distance_to_target**2)
+    
+#     # Combine rewards based on distance condition
+#     r = torch.where(distance_to_target > 0.5, 
+#                     carry_far_reward + carry_near_reward, 
+#                     0.2 + carry_near_reward)
+    
+#     return r
+
+
+@torch.jit.script
+def compute_pick_reward(
+    target_object_height,
+    humanoid_hand_height, 
+    box_height,
+):
+    # type: (Tensor, Tensor, Tensor) -> Tensor
+    height_err_scale = 10.0
+    
+    height_diff = humanoid_hand_height - box_height
+    height_err = torch.sum(height_diff * height_diff, dim=-1)
+    height_reward = torch.exp(-height_err_scale * height_err)
+
+    height_diff_box_target = box_height - target_object_height
+    height_err_box_target = torch.sum(height_diff_box_target * height_diff_box_target, dim=-1)
+    height_reward_box_target = torch.exp(-height_err_scale * height_err_box_target)
+    
+    reward = height_reward + height_reward_box_target
+
+    return reward
+
+
+
 @torch.jit.script
 def compute_carry_reward(
     object_pos, 
@@ -624,37 +650,45 @@ def compute_carry_reward(
     dt
 ):
     # type: (Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, float) -> Tensor
-    
-    # Calculate object velocity
-    object_vel = (object_pos - prev_object_pos) / dt
+    distance_threshold = 0.5
 
-    # Calculate vector from current box position to target position
-    to_target = target_object_pos - object_pos
+    pos_err_scale = 0.5
+    vel_err_scale = 2.0
+    height_err_scale = 10.0
+    carry_near_err_scale = 10.0
+
+    pos_diff = target_object_pos - object_pos # TODO: make target pos in x-y plane
+    pos_err = torch.sum(pos_diff * pos_diff, dim=-1)
+    pos_reward = torch.exp(-pos_err_scale * pos_err)
+
+
+    tar_dir = target_object_pos - object_pos # TODO: make target pose in x-y plane
+    tar_dir_xy = tar_dir[..., :2]
+    tar_dir_xy = torch.nn.functional.normalize(tar_dir_xy, dim=-1)
+    delta_object_pos = object_pos - prev_object_pos
+    object_vel = delta_object_pos / dt
+    tar_dir_speed = torch.sum(tar_dir_xy * object_vel[..., :2], dim=-1) # project object vel onto tar dir
+    tar_vel_err = tar_object_speed - tar_dir_speed
+    tar_vel_err = torch.clamp_min(tar_vel_err, 0.0)
+    vel_reward = torch.exp(-vel_err_scale * (tar_vel_err * tar_vel_err))
+    speed_mask = tar_dir_speed <=0
+    vel_reward[speed_mask] = 0
+
+
+    height_diff = humanoid_hand_height - box_height
+    height_err = torch.sum(height_diff * height_diff, dim=-1)
+    height_reward = torch.exp(-height_err_scale * height_err)
+
     
-    # Calculate distance to target
-    distance_to_target = torch.norm(to_target, dim=-1)
-    
-    # Calculate d_prime (horizontal unit vector pointing from box to target)
-    d_prime = to_target.clone()
-    d_prime[:, 2] = 0  # Zero out vertical component
-    d_prime = d_prime / (torch.norm(d_prime, dim=-1, keepdim=True) + 1e-8)
-    
-    # Calculate speed alignment for object
-    object_speed_alignment = torch.sum(d_prime * object_vel, dim=-1)
-    
-    # Calculate rewards
-    position_reward = 0.2 * torch.exp(-0.5 * distance_to_target**2)
-    object_speed_reward = 0.2 * torch.exp(-2.0 * (tar_object_speed - object_speed_alignment)**2)
-    height_reward = 0.1 * torch.exp(-10 * (humanoid_hand_height - box_height)**2)
-    
-    carry_far_reward = position_reward + object_speed_reward + height_reward
-    carry_near_reward = 0.2 * torch.exp(-10 * distance_to_target**2)
+    carry_far_reward = 0.2 * pos_reward + 0.2 * vel_reward + 0.1 * height_reward
+    carry_near_reward = 0.2 * torch.exp(-carry_near_err_scale * pos_err)
     
     # Combine rewards based on distance condition
-    r = torch.where(distance_to_target > 0.5, 
+
+    r = torch.where(pos_err > 0.5, 
                     carry_far_reward + carry_near_reward, 
                     0.2 + carry_near_reward)
-    
+
     return r
 
 @torch.jit.script

@@ -660,7 +660,7 @@ class Humanoid(BaseTask):
         if (env_ids is None):
             self.obs_buf[:] = obs
         else:
-             self.obs_buf[env_ids] = obs
+            self.obs_buf[env_ids] = obs
         return
 
     def _compute_humanoid_obs(self, env_ids=None): 
